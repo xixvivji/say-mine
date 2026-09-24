@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { SpeakingPractice, AnswerComparison, Followup } from "@/components/study-tools";
 import {
   ArrowRight,
   ArrowLeft,
@@ -87,8 +88,11 @@ export default function Home() {
     topic: "",
     type: "경험 이야기",
     experience: "",
+    clarifications: [],
   });
   const [note, setNote] = useState<Note | null>(null);
+  const [practicing, setPracticing] = useState(false);
+  const [revision, setRevision] = useState(0);
   const [generationMode, setGenerationMode] = useState("llm");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -106,14 +110,14 @@ export default function Home() {
     });
     return () => { active = false; };
   }, []);
-  async function generate() {
+  async function generate(input: Survey = form) {
     setLoading(true);
     setError("");
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(input),
       });
       const raw = await response.json();
       if (!response.ok)
@@ -123,6 +127,10 @@ export default function Home() {
         );
       const data = generationSchema.parse(raw);
       setNote(data.note);
+      setForm(input);
+      setRevision((value) => value + 1);
+      setNotice("");
+      setPracticing(false);
       setGenerationMode(data.mode);
       setStep(2);
       window.scrollTo({ top: 0, behavior: "instant" });
@@ -388,8 +396,9 @@ export default function Home() {
                   rows={8}
                   placeholder="예: 지난 주말 친구와 동네 공원을 걸었어요. 비가 온 뒤라 공기가 시원했고, 벤치에 앉아 한 주 동안 있었던 일을 이야기했어요. 오랜만에 마음이 편안해졌어요."
                   value={form.experience}
-                  onChange={(e) => change("experience", e.target.value)}
+                  onChange={(e) => setForm((value) => ({ ...value, experience: e.target.value, clarifications: [] }))}
                 />
+                {form.clarifications.length > 0 && <p className="footnote">추가 답변 {form.clarifications.length}개가 함께 반영돼요. 원문을 수정하면 기존 추가 답변은 초기화돼요.</p>}
                 <div className="input-meta">
                   <span>개인정보 없이 5–1,500자로 입력해 주세요.</span>
                   <span>{form.experience.length} / 1,500</span>
@@ -419,7 +428,7 @@ export default function Home() {
                   <button
                     className="primary"
                     disabled={loading || form.experience.trim().length < 5}
-                    onClick={generate}
+                    onClick={() => void generate()}
                   >
                     <Sparkles size={18} />
                     {loading ? "노트 만드는 중…" : "내 말하기 노트 만들기"}
@@ -440,6 +449,14 @@ export default function Home() {
                     : "추가 정보 확인 · 규칙 기반 (AI 미호출)"}
                 </p>
               </div>
+              {generationMode === "llm" && (
+                <div className="practice-entry">
+                  <div><strong>내 이야기, 이제 말해볼까요?</strong><p>대본을 조금씩 가리고 기억해서 말해보세요.</p></div>
+                  <button className="primary" disabled={loading} onClick={() => setPracticing(!practicing)}>{practicing ? "노트로 돌아가기" : "말하기 연습 시작"}</button>
+                </div>
+              )}
+              {practicing && <SpeakingPractice key={revision} note={note} />}
+              <div hidden={practicing}>
               <div className="question">
                 <span>연습 질문</span>
                 <h3 lang="en">{note.question}</h3>
@@ -458,9 +475,8 @@ export default function Home() {
               <h3 className="block-title">
                 02 <span>내 이야기로 만든 답변</span>
               </h3>
-              <div className="answer" lang="en">
-                {note.answer}
-              </div>
+              <div className="answer" lang="en">{note.answer}</div>
+              {generationMode === "llm" && <AnswerComparison key={`comparison-${revision}`} note={note} level={form.level} />}
               <p className="footnote">
                 사실과 다른 부분은 내 경험에 맞게 바꿔주세요. 대괄호는 직접 채울
                 부분이에요.
@@ -469,19 +485,6 @@ export default function Home() {
                 <strong>대본을 가리고 이 키워드로 말해보세요</strong>
                 <p lang="en">{note.keywords.join(" · ")}</p>
               </div>
-              {note.missing_details.length > 0 && (
-                <div className="clarifications">
-                  <strong>더 알려주면 좋은 내용</strong>
-                  <ul>
-                    {note.missing_details.map((q, i) => (
-                      <li key={i}>{q}</li>
-                    ))}
-                  </ul>
-                  <p>
-                    아래 ‘다른 이야기 연습하기’에서 경험을 보완할 수 있어요.
-                  </p>
-                </div>
-              )}
               <h3 className="block-title">
                 03 <span>다시 꺼내 쓸 표현</span>
               </h3>
@@ -504,6 +507,7 @@ export default function Home() {
                 ))}
               </ul>
               <p className="tip">{note.tip}</p>
+              <Followup key={`followup-${revision}`} questions={note.missing_details} experience={form.experience} history={form.clarifications} loading={loading} error={error} onSubmit={(clarifications) => void generate({ ...form, clarifications })} />
               <div className="export-actions">
                 <button
                   className="secondary"
@@ -523,10 +527,13 @@ export default function Home() {
                 </button>
               </div>
               <p role="status">{notice}</p>
+              </div>
               <div className="actions">
                 <button
                   className="secondary"
+                  disabled={loading}
                   onClick={() => {
+                    setPracticing(false);
                     setStep(1);
                     setError("");
                     setNotice("");

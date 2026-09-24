@@ -114,7 +114,7 @@ class CoreTests(unittest.TestCase):
     def test_all_fields_reach_prompt(self):
         for case in CASES:
             data = prepare_context(case["input"], "KNOWLEDGE")
-            self.assertEqual(json.loads(data["learner_json"]), case["input"])
+            self.assertEqual(json.loads(data["learner_json"]), Survey.model_validate(case["input"]).model_dump())
             self.assertEqual(data["knowledge"], "KNOWLEDGE")
 
     def test_goal_separate_from_ability(self):
@@ -202,7 +202,39 @@ class CoreTests(unittest.TestCase):
                 note = create_chain("reference").invoke({**BASE_INPUT, "level": level})
             self.assertEqual(len(calls), 2)
             self.assertEqual(note.answer, variants[level])
+            self.assertEqual(note.variants, variants)
             self.assertIn(variants[level], calls[1].to_messages()[1].content)
+
+    def test_unsafe_comparison_draft_is_omitted_without_extra_call(self):
+        variants = {**STYLE_EXAMPLES["경험 이야기"]["answers"], LEVELS[2]: "I walked for 999 minutes."}
+        calls = []
+        def fake_model(messages):
+            calls.append(messages)
+            payload = {"answers": variants} if len(calls) == 1 else {k: v for k, v in FIXTURE.items() if k not in {"answer", "tip"}}
+            return AIMessage(content=json.dumps(payload, ensure_ascii=False))
+        with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+            note = create_chain("").invoke(BASE_INPUT)
+        self.assertNotIn(LEVELS[2], note.variants)
+        self.assertEqual(len(calls), 2)
+
+    def test_clarification_questions_do_not_count_as_facts(self):
+        raw = {**BASE_INPUT, "experience": "공원에 갔다.", "clarifications": [{"question": "30분 동안 걸었나요? 누구와 갔고 어떤 기분이 들었나요?", "answer": "아니요."}]}
+        self.assertEqual(generation_mode(raw), "clarification")
+        context = prepare_context(raw, "")
+        self.assertIn("30분", context["experience"])
+        self.assertNotIn("30", context["facts"])
+        with self.assertRaises(OutputParserException):
+            check_numbers("I walked for 30 minutes.", context["facts"])
+
+    def test_clarification_answers_enable_generation_and_preserve_original(self):
+        raw = {**BASE_INPUT, "experience": "공원에 갔다.", "clarifications": [{"question": "누구와 무엇을 했나요?", "answer": "친구와 함께 30분 걸었고 시원한 바람이 불어서 기분이 좋았다."}]}
+        survey = Survey.model_validate(raw)
+        self.assertEqual(survey.experience, "공원에 갔다.")
+        self.assertEqual(generation_mode(raw), "llm")
+        self.assertEqual(check_numbers("I walked for 30 minutes.", survey.facts), "I walked for 30 minutes.")
+        for updates in ({"clarifications": [{"question": "설명", "answer": " "}]}, {"clarifications": [{"question": "설명", "answer": "가" * 1500}]}):
+            with self.assertRaises(ValidationError):
+                Survey.model_validate({**raw, **updates})
 
     def test_parser_valid(self):
         self.assertEqual(
@@ -227,6 +259,7 @@ class CoreTests(unittest.TestCase):
             note = create_chain("").invoke(BASE_INPUT)
         self.assertEqual(len(calls), 3)
         self.assertEqual(note.answer, "We walked for 30 minutes.")
+        self.assertEqual(note.variants[LEVELS[0]], note.answer)
 
     def test_invalid_numeric_repair_stops_before_card(self):
         calls = []
@@ -308,7 +341,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(
             self.client.post(
                 "/generate",
-                content="x" * 16001,
+                content="x" * 32001,
                 headers={"Content-Type": "application/json"},
             ).status_code,
             413,
@@ -328,7 +361,7 @@ class ApiTests(unittest.TestCase):
             fake_chain.invoke.return_value = Note.model_validate(FIXTURE)
             response = self.client.post("/generate", json=CASES[0]["input"])
         self.assertEqual(response.status_code, 200)
-        fake_chain.invoke.assert_called_once_with(CASES[0]["input"])
+        fake_chain.invoke.assert_called_once_with(Survey.model_validate(CASES[0]["input"]).model_dump())
         self.assertEqual(response.json()["mode"], "llm")
         self.assertEqual(response.json()["note"]["answer"], FIXTURE["answer"])
         self.assertFalse(main.generation_lock.locked())
