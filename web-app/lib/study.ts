@@ -8,6 +8,11 @@ export const works = config.works;
 export const students = config.students;
 export const homes = config.homes;
 export const topicOptions = Object.values(groups).flat();
+export const clarificationSchema = z.object({
+  question: z.string().trim().min(1).max(400),
+  answer: z.string().trim().min(1).max(1500),
+}).strict();
+export type Clarification = z.infer<typeof clarificationSchema>;
 const choice = (options: string[]) =>
   z.string().refine((v) => options.includes(v));
 export const surveySchema = z
@@ -25,13 +30,16 @@ export const surveySchema = z
     topic: z.string(),
     type: choice(types),
     experience: z.string().trim().min(5).max(1500),
+    clarifications: z.array(clarificationSchema).max(12).default([]),
   })
   .strict()
+  .refine((s) => s.experience.length + s.clarifications.reduce((sum, item) => sum + item.answer.length, 0) <= 1500, "원문과 추가 답변은 합계 1,500자 이내여야 합니다.")
   .refine(
     (s) => s.topics.includes(s.topic),
     "선택한 주제만 연습할 수 있습니다.",
   );
 export const noteSchema = z.object({
+  variants: z.record(choice(levels), z.string().min(10).max(2000)).default({}),
   question: z.string().min(5).max(500),
   outline: z.array(z.string()).min(3).max(4),
   answer: z.string().min(10).max(2000),

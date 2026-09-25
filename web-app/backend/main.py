@@ -59,7 +59,7 @@ async def generate(request: Request):
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
-        if len(body) > 16000:
+        if len(body) > 32000:
             return reply({"error": "입력이 너무 큽니다."}, 413)
     try:
         data = Survey.model_validate_json(bytes(body)).model_dump()

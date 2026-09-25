@@ -64,3 +64,10 @@ npm run build
 학습 기준 참고: [국내 OPIc](https://www.opic.or.kr/opics/servlet/controller.opic.site.about.AboutServlet?p_process=move-introduce-opic) · [ACTFL](https://www.actfl.org/assessments/postsecondary-assessments/opi/tips-for-opi-and-opic-test-takers)
 
 표현 지침 참고: [ACTFL 2024 Speaking](https://www.actfl.org/uploads/files/general/Resources-Publications/ACTFL_Proficiency_Guidelines_2024.pdf) · [British Council 접속사](https://learnenglishteens.britishcouncil.org/comment/74051) · [Cambridge 담화 표지](https://dictionary.cambridge.org/grammar/british-grammar/discourse-markers-so-right). 세 표현 수준과 예시는 자체 학습 설계이며 공식 등급별 모범 답안이 아닙니다.
+
+## 비교하고 직접 말하기
+
+- 결과의 ‘같은 이야기, 세 가지 표현 비교’에서 표현 수준별 초안을 비교합니다. 숫자 검사를 통과한 초안만 표시하며, 선택한 수준을 수정한 경우 수정본을 표시합니다. 비교해도 원래 노트의 표현·키워드는 바뀌지 않습니다.
+- ‘말하기 연습 시작’에서 전체 답변 → 한국어 뼈대 → 영어 키워드 → 질문만 순서로 연습합니다. 타이머와 단계별 완료 표시는 연습 화면을 떠나면 초기화됩니다. 녹음·음성 인식은 사용하지 않습니다.
+- 결과 아래의 보완 질문에 답하면 원문과 추가 답변으로 노트를 다시 생성합니다. 실패하면 기존 노트와 작성한 답변을 유지합니다. 질문은 사실이 아닌 문맥으로 전달하며 원문과 답변의 합계는 1,500자, 추가 답변은 최대 12개입니다. 원문을 수정하면 이전 추가 답변은 초기화됩니다.
+- 생성 결과와 추가 답변은 새로고침하면 사라집니다. 필요한 노트는 파일 저장을 이용하세요.

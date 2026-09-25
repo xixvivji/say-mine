@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > 16000) {
+      if (size > 32000) {
         await reader.cancel();
         return Response.json(
           { error: "입력이 너무 큽니다." },
