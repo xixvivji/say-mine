@@ -4,6 +4,8 @@ import Link from "next/link";
 import { SpeakingPractice, AnswerComparison, Followup } from "@/components/study-tools";
 import { SessionImport } from "@/components/session-import";
 import { LocalSave } from "@/components/local-save";
+import { StudyLibrary } from "@/components/study-library";
+import { deleteHistoryRecord, toggleFavorite, type RecordId } from "@/lib/library";
 import { useLocalWorkspace } from "@/hooks/use-local-workspace";
 import { loadBrowserWorkspace, type WorkspaceData, type WorkspaceLoad } from "@/lib/local-workspace";
 import { nextHistory, readableSession, replaceStory, sameSurvey, serializeSession, type SavedSession, type Snapshot } from "@/lib/session";
@@ -113,6 +115,7 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(restored ? "이 브라우저에 저장한 학습을 복원했어요. 보완 답변 작성창과 타이머는 새로 시작해요." : "");
   const [connection, setConnection] = useState("연결 확인 중");
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const local = useLocalWorkspace({ form, step, current: snapshot, history }, initial);
   const formDirty = !sameSurvey(form, snapshot?.input ?? emptySurvey);
   useEffect(() => {
@@ -138,6 +141,8 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
     setError("");
     try {
       input = surveySchema.parse(input);
+      // Check capacity before a model call; never discard a favorite after generation.
+      const archivedHistory = nextHistory(history, snapshot);
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,7 +155,7 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
             "생성하지 못했습니다. 다시 시도해 주세요.",
         );
       const data = generationSchema.parse(raw);
-      setHistory((items) => nextHistory(items, snapshot));
+      setHistory(archivedHistory);
       setSnapshot({ ...data, input, generatedAt: new Date().toISOString(), reason });
       setUnsaved(true);
       setFollowupDirty(false);
@@ -170,6 +175,15 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
   }
   function noteText() {
     return snapshot ? readableSession(snapshot, history) : "";
+  }
+  function updateLibrary(id: RecordId, action: "favorite" | "delete") {
+    if (loading) return;
+    try {
+      const records = { current: snapshot, history };
+      const updated = action === "favorite" ? toggleFavorite(records, id) : deleteHistoryRecord(records, id);
+      setSnapshot(updated.current); setHistory(updated.history); setUnsaved(true);
+      setNotice(action === "delete" ? "이전 기록 하나를 삭제했어요. 내려받은 JSON 백업이 있으면 다시 불러올 수 있어요." : "즐겨찾기를 변경했어요.");
+    } catch (failure) { setNotice(failure instanceof Error ? failure.message : "기록을 변경하지 못했어요."); }
   }
   function loadSession(session: SavedSession) {
     setSnapshot(session.current); setHistory(session.history);
@@ -288,6 +302,12 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
             <div style={{ width: `${((step + 1) / 3) * 100}%` }} />
           </div>
           <LocalSave local={local} disabled={loading} />
+          <div className="study-options workspace-views" role="group" aria-label="학습 화면 선택">
+            <button className="secondary" disabled={loading} aria-pressed={!libraryOpen} onClick={() => setLibraryOpen(false)}>현재 작업</button>
+            <button className="secondary" disabled={loading} aria-pressed={libraryOpen} onClick={() => { setLibraryOpen(true); setPracticing(false); setNotice(""); }}>학습 기록 보관함 ({history.length + (snapshot ? 1 : 0)})</button>
+          </div>
+          {libraryOpen && <StudyLibrary records={{ current: snapshot, history }} disabled={loading} onFavorite={id => updateLibrary(id, "favorite")} onDelete={id => updateLibrary(id, "delete")} onBackup={() => downloadNote("json")} />}
+          <div hidden={libraryOpen}>
           {step === 0 && (
             <section>
               <div className="section-head">
@@ -594,8 +614,9 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
               </div>
             </section>
           )}
-          <p role="status">{notice}</p>
           <SessionImport disabled={loading} onLoad={loadSession} />
+          </div>
+          <p role="status">{notice}</p>
           <footer>
             <span>say.mine · 공식 OPIc 서비스와 무관한 학습 도구</span>
             <a href={guideUrl} target="_blank" rel="noreferrer">

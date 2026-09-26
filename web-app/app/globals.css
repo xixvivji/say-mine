@@ -681,7 +681,28 @@ footer p {
 .local-save > p { margin-top: 10px; font-size: 14px; line-height: 1.65; }
 .local-save .study-options { margin: 12px 0 0; }
 .local-save .correction-preview button { margin: 12px 8px 0 0; }
+.workspace-views { padding-bottom: 20px; border-bottom: 1px solid var(--border); margin-bottom: 30px; }
+.library-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 16px; margin-top: 22px; }
+.library-filters label { min-width: 0; font-size: 14px; font-weight: 600; }
+.library-filters input, .library-filters select { display: block; width: 100%; min-height: 46px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--input); border-radius: 9px; background: white; font: inherit; }
+.library-filters input:focus-visible, .library-filters select:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
+.library-count { font-size: 14px; color: #65708c; margin: 18px 0; }
+.library-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.library-card { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: #fff; overflow-wrap: anywhere; }
+.library-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.library-card-top > span { font-size: 12px; color: var(--primary); background: #eef1ff; padding: 3px 9px; border-radius: 6px; }
+.library-card-top button { padding: 10px; }
+.library-card-top button[aria-pressed="true"] { color: #946b00; border-color: #ddc370; background: #fff8e8; }
+.library-card h3 { font-size: 19px; font-weight: 700; }
+.library-card time, .library-meta { font-size: 12px; color: #65708c; }
+.library-excerpt { margin: 16px 0; min-height: 4.95em; font-size: 14px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.library-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.library-card-actions button { font-size: 13px; padding: 10px 12px; }
+.library-card .correction-preview { padding: 12px; font-size: 13px; }
+.library-empty { display: grid; justify-items: center; gap: 14px; padding: 38px 20px; border: 1px dashed var(--border); border-radius: 14px; color: #65708c; }
+.library-review > .section-head { margin-top: 24px; }
 @media (max-width: 600px) {
+  .library-filters, .library-grid { grid-template-columns: minmax(0, 1fr); }
   .fact-comparison { grid-template-columns: minmax(0, 1fr); }
   .study-panel { padding: 18px; }
   .practice-entry { align-items: stretch; flex-direction: column; }

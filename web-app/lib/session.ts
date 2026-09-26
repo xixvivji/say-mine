@@ -7,6 +7,7 @@ export const snapshotSchema = generationSchema.extend({
   input: surveySchema,
   generatedAt: z.string().datetime(),
   reason: z.enum(["initial", "addition", "correction"]),
+  favorite: z.boolean().optional(),
 }).strict();
 export const sessionSchema = z.object({
   app: z.literal("say.mine"),
@@ -37,7 +38,14 @@ export function replaceStory(input: Survey, correctedStory: string): Survey {
 }
 
 export function nextHistory(history: Snapshot[], previous: Snapshot | null) {
-  return previous ? [...history, previous].slice(-MAX_HISTORY) : history;
+  if (!previous) return history;
+  const next = [...history, previous];
+  while (next.length > MAX_HISTORY) {
+    const removable = next.findIndex(item => !item.favorite);
+    if (removable < 0) throw new Error("보관함이 즐겨찾기로 가득 찼어요. 이전 기록 하나의 즐겨찾기를 해제하거나 삭제한 뒤 다시 만들어 주세요.");
+    next.splice(removable, 1);
+  }
+  return next;
 }
 
 export function serializeSession(current: Snapshot, history: Snapshot[]) {
@@ -72,7 +80,7 @@ export function readableSession(current: Snapshot, history: Snapshot[]) {
     `## 키워드\n${note.keywords.join(", ")}\n\n## 변형 질문\n${note.variations.join("\n")}`,
     `## 보완 질문\n${note.missing_details.join("\n") || "없음"}\n\n## 연습 팁\n${note.tip}`,
     `## 검토 안내\n${note.quality_warnings.join("\n") || "자동 점검에서 알림 없음. 사실·문법 검증 완료를 뜻하지 않습니다."}`,
-    `## 이전 이야기 이력 (최근 ${MAX_HISTORY}개까지)\n${history.map((item, i) => `${i + 1}. ${reasonLabels[item.reason]} · ${item.generatedAt}\n${storyFacts(item.input)}`).join("\n\n") || "없음"}`,
+    `## 이전 이야기 이력 (최대 ${MAX_HISTORY}개)\n${history.map((item, i) => `${i + 1}. ${reasonLabels[item.reason]} · ${item.generatedAt}\n${storyFacts(item.input)}`).join("\n\n") || "없음"}`,
     "전체 이전 노트까지 다시 불러오려면 JSON 저장을 사용하세요. 진행 중인 입력과 타이머는 저장하지 않습니다.",
   ].join("\n\n");
 }
