@@ -25,6 +25,25 @@ def evaluation_cases():
         dict(id="correction", input=corrected, anchors=[("정정된 산책 시간", r"(?:20|twenty)\s+minutes"), ("옷 갈아입기", clothes)], outline_anchors=[("정정된 시간", r"20분"), ("옷 갈아입기", r"옷.*갈아|갈아.*옷")]),
         dict(id="description", input={**BASE, "topics": ["카페 가기"], "topic": "카페 가기", "type": "묘사", "experience": "집 근처 카페는 작고 조용하다. 창문 옆에 자리가 세 개 있다. 나는 주말마다 그곳에서 책을 읽는다. 조용해서 집중하기 좋다.", "clarifications": []}, anchors=[("창가 좌석 수", r"(?:three|3)\s+seats"), ("주말 독서", r"read\w*.*(?:weekend|weekends)|(?:weekend|weekends).*read")], outline_anchors=[("독서", r"책|독서")]),
         dict(id="roleplay", input={**BASE, "topics": ["카페 가기"], "topic": "카페 가기", "type": "롤플레이", "experience": "가상 상황이다. 카페 직원에게 테이크아웃이 가능한지, 디카페인 커피가 있는지, 가격이 얼마인지 물어보고 싶다.", "clarifications": []}, anchors=[("테이크아웃", r"take.?out|take.?away|to go"), ("디카페인", r"decaf"), ("가격 질문", r"how much|price|cost")], outline_anchors=[("가격", r"가격|얼마")]),
+        dict(
+            id="library_holdout",
+            input={**BASE, "topics": ["독서"], "topic": "독서", "type": "묘사", "experience": "집에서 걸어서 10분 거리에 작은 도서관이 있다. 창문이 커서 안이 밝다. 주중 저녁마다 혼자 자격증 공부를 한다. 주말에는 그곳에 가지 않는다.", "clarifications": []},
+            anchors=[("도보 거리", r"(?:10|ten)[- ]minutes?"),
+                     ("큰 창문", r"(?:big|large) windows?|windows? (?:is|are) (?:big|large)"),
+                     ("자격증 공부", r"qualif|certific|licen[cs]"),
+                     ("주중 저녁", r"weekday.*evening|evening.*weekday"),
+                     ("주말에는 가지 않음", r"(?:not|don't|never).*weekends?")],
+            forbidden=[("원문에 없는 분위기·집중·계획", r"\b(?:quiet|calm|concentrat\w*|focus\w*|no plans)\b")],
+            outline_anchors=[("주말 부정", r"주말.*않|주말.*안")],
+        ),
+        dict(
+            id="hotel_holdout",
+            input={**BASE, "topics": ["해외 여행"], "topic": "해외 여행", "type": "롤플레이", "experience": "가상 상황이다. 호텔 직원에게 공항 셔틀이 있는지, 첫차가 몇 시인지, 내일 아침 7시에 예약할 수 있는지 물어보고 싶다.", "clarifications": []},
+            anchors=[("공항 셔틀", r"airport shuttle|shuttle.*airport"), ("첫차 질문", r"first"),
+                     ("예약", r"book|reserv"), ("내일", r"tomorrow"),
+                     ("아침 7시", r"(?:7|seven)\s*(?:a\.?m\.?|in the morning)|morning.*(?:7|seven)")],
+            outline_anchors=[("첫차", r"첫차|첫.*셔틀"), ("예약", r"예약")],
+        ),
     ]
 
 
@@ -39,6 +58,11 @@ def inspect_note(note, case):
         for label, pattern in case["anchors"]:
             if not re.search(pattern, answer, re.I | re.S):
                 issues.append(f"{level}: {label} 표현 확인 필요")
+        for label, pattern in case.get("forbidden", []):
+            if re.search(pattern, answer, re.I):
+                issues.append(f"{level}: {label} 추가 여부 확인 필요")
+        if case["input"]["type"] == "롤플레이" and "?" not in answer:
+            issues.append(f"{level}: 상황 설명 대신 실제 질문인지 확인 필요")
     outline = " ".join(note.outline)
     for label, pattern in case["outline_anchors"]:
         if not re.search(pattern, outline):

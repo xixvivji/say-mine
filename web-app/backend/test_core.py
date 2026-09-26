@@ -24,6 +24,10 @@ from .core import (
     load_knowledge,
     AnswerVariants,
     variants_prompt,
+    roleplay_prompt,
+    roleplay_context,
+    generate_roleplay_variants,
+    EnglishAnswer,
     check_numbers,
     replace_story,
     review_variants,
@@ -92,7 +96,7 @@ FIXTURE = dict(
 class CoreTests(unittest.TestCase):
     def test_live_evaluation_examples_validate(self):
         cases = evaluation_cases()
-        self.assertEqual(len(cases), 4)
+        self.assertEqual(len(cases), 6)
         for case in cases:
             Survey.model_validate(case["input"])
         self.assertIn("30분", cases[0]["input"]["experience"])
@@ -115,6 +119,18 @@ class CoreTests(unittest.TestCase):
         for size in (2, 7):
             with self.assertRaises(OutputParserException):
                 card_parser.invoke(json.dumps({**card, "outline": ["사실"] * size}))
+
+    def test_holdout_checker_accepts_paraphrase_and_flags_added_reason(self):
+        case = evaluation_cases()[4]
+        answer = "The small library is a ten-minute walk away. The window is large, so it is bright inside. I study alone for a certification every weekday evening. I do not go there on weekends."
+        note = Note.model_validate({**FIXTURE, "variants": dict.fromkeys(LEVELS, answer),
+                                   "outline": ["작은 도서관", "자격증 공부", "주말에는 가지 않는다"]})
+        self.assertEqual(inspect_note(note, case), [])
+        note.variants[LEVELS[1]] += " The quiet space helps me focus."
+        self.assertTrue(any("원문에 없는" in issue for issue in inspect_note(note, case)))
+        roleplay = evaluation_cases()[3]
+        note.variants = dict.fromkeys(LEVELS, "I want to ask about takeaway, decaf and the price.")
+        self.assertTrue(any("실제 질문" in issue for issue in inspect_note(note, roleplay)))
 
     def test_card_prompt_gets_all_additional_facts(self):
         raw = {**BASE_INPUT, "clarifications": [{"question": "집에 돌아온 다음에는요?", "answer": "젖은 옷을 갈아입었다."}]}
@@ -224,7 +240,8 @@ class CoreTests(unittest.TestCase):
                     self.assertIn("missing_details", messages[0].content)
                     self.assertIn(data["experience"], messages[1].content)
                     self.assertIn("answer와 tip 없이", messages[1].content)
-                    draft_messages = variants_prompt.invoke(context).to_messages()
+                    draft_messages = (roleplay_prompt.invoke(roleplay_context(context, level))
+                                      if task == "롤플레이" else variants_prompt.invoke(context)).to_messages()
                     self.assertIn("independent", draft_messages[0].content)
                     self.assertIn(data["experience"], draft_messages[1].content)
                     self.assertIn(context["level_rule"], draft_messages[0].content)
@@ -253,6 +270,71 @@ class CoreTests(unittest.TestCase):
         for answers in ({LEVELS[0]: valid[LEVELS[0]]}, {**valid, LEVELS[1]: "한국어로 쓰인 답변입니다."}):
             with self.assertRaises(ValidationError):
                 AnswerVariants(answers=answers)
+
+    def test_independent_style_calls_preserve_facts_config_and_user_selection(self):
+        context = prepare_context({**CASES[4]["input"], "level": LEVELS[2]}, "reference")
+        calls = []
+        def fake_draft(data, config):
+            calls.append((data, config))
+            return EnglishAnswer(answer="I walked in the park.")
+        generate_roleplay_variants(context, RunnableLambda(fake_draft), {"tags": ["split-test"]})
+        self.assertEqual([data["selected_level"] for data, _ in calls], LEVELS)
+        self.assertEqual(context["selected_level"], LEVELS[2])
+        for data, config in calls:
+            self.assertEqual(data["facts"], context["facts"])
+            self.assertNotIn("draft_answer", data)
+            self.assertIn("split-test", config["tags"])
+            self.assertEqual(data["example_answer"], STYLE_EXAMPLES["롤플레이"]["answers"][data["selected_level"]])
+
+    def test_four_call_chain_preserves_selected_answer(self):
+        variants = STYLE_EXAMPLES["롤플레이"]["answers"]
+        for level in LEVELS:
+            calls = []
+            def fake_model(messages):
+                calls.append(messages)
+                payload = {"answer": variants[LEVELS[len(calls) - 1]]} if len(calls) <= 3 else {k:v for k,v in FIXTURE.items() if k not in {"answer", "tip"}}
+                return AIMessage(content=json.dumps(payload, ensure_ascii=False))
+            with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+                note = create_chain("reference").invoke({**CASES[4]["input"], "level": level})
+            self.assertEqual(len(calls), 4)
+            self.assertEqual(note.answer, variants[level])
+            self.assertEqual(note.variants, variants)
+            self.assertIn(variants[level], calls[3].to_messages()[1].content)
+
+    def test_roleplay_repairs_are_bounded_to_six_calls(self):
+        card = {k: v for k, v in FIXTURE.items() if k not in {"answer", "tip"}}
+        variants = {**STYLE_EXAMPLES["롤플레이"]["answers"], LEVELS[0]: "Can I buy 999 coffees?"}
+        for repair_succeeds in (True, False):
+            calls = []
+            def fake_model(messages):
+                calls.append(messages)
+                if len(calls) <= 3:
+                    payload = {"answer": variants[LEVELS[len(calls) - 1]]}
+                elif len(calls) == 4:
+                    payload = {"answer": "Is takeout available? Do you have decaf? How much is it?"}
+                else:
+                    payload = card if len(calls) == 6 and repair_succeeds else {}
+                return AIMessage(content=json.dumps(payload))
+            with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+                chain = create_chain("")
+                raw = {**CASES[4]["input"], "level": LEVELS[0]}
+                if repair_succeeds:
+                    note = chain.invoke(raw)
+                    self.assertNotIn("999", note.answer)
+                else:
+                    with self.assertRaises(OutputParserException):
+                        chain.invoke(raw)
+            self.assertEqual(len(calls), 6)
+
+    def test_invalid_roleplay_draft_stops_before_other_calls(self):
+        calls = []
+        def fake_model(messages):
+            calls.append(messages)
+            return AIMessage(content='{"answer": "한국어 답변입니다."}')
+        with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+            with self.assertRaises(OutputParserException):
+                create_chain("").invoke(CASES[4]["input"])
+        self.assertEqual(len(calls), 1)
 
     def test_two_stage_chain_preserves_selected_answer(self):
         variants = STYLE_EXAMPLES["경험 이야기"]["answers"]
