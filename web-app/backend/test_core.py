@@ -29,6 +29,7 @@ from .core import (
     review_variants,
 )
 from . import main
+from .evaluate import evaluation_cases, inspect_note
 
 ROOT = Path(__file__).parent.parent
 BASE_INPUT = {
@@ -89,6 +90,40 @@ FIXTURE = dict(
 
 
 class CoreTests(unittest.TestCase):
+    def test_live_evaluation_examples_validate(self):
+        cases = evaluation_cases()
+        self.assertEqual(len(cases), 4)
+        for case in cases:
+            Survey.model_validate(case["input"])
+        self.assertIn("30분", cases[0]["input"]["experience"])
+        self.assertNotIn("30분", cases[1]["input"]["experience"])
+        self.assertEqual(cases[1]["input"]["clarifications"], [])
+
+    def test_example_checker_flags_omission_without_claiming_semantic_grading(self):
+        case = evaluation_cases()[0]
+        note = Note.model_validate({**FIXTURE, "variants": {level: "I walked for 30 minutes." for level in LEVELS}})
+        self.assertTrue(any("옷" in issue for issue in inspect_note(note, case)))
+        note.variants = {level: "I walked for 30 minutes. I changed my wet clothes." for level in LEVELS}
+        note.outline = ["공원에서 산책", "집으로 돌아옴", "젖은 옷을 갈아입었다."]
+        self.assertEqual(inspect_note(note, case), [])
+
+    def test_outline_accepts_six_items_but_is_bounded(self):
+        card = {key: value for key, value in FIXTURE.items() if key not in {"answer", "tip"}}
+        for size in (3, 4, 5, 6):
+            parsed = card_parser.invoke(json.dumps({**card, "outline": ["사용자가 확인한 사실"] * size}))
+            self.assertEqual(len(parsed.outline), size)
+        for size in (2, 7):
+            with self.assertRaises(OutputParserException):
+                card_parser.invoke(json.dumps({**card, "outline": ["사실"] * size}))
+
+    def test_card_prompt_gets_all_additional_facts(self):
+        raw = {**BASE_INPUT, "clarifications": [{"question": "집에 돌아온 다음에는요?", "answer": "젖은 옷을 갈아입었다."}]}
+        context = prepare_context(raw, "")
+        messages = prompt.invoke({**context, "draft_answer": FIXTURE["answer"]}).to_messages()
+        self.assertIn(context["facts"], messages[1].content)
+        self.assertIn("젖은 옷을 갈아입었다.", messages[1].content)
+        self.assertIn("3~6개", messages[0].content)
+
     def test_correction_replaces_old_facts_and_questions(self):
         original = {**BASE_INPUT, "clarifications": [{"question": "30분 걸었나요?", "answer": "30분 걸었다."}]}
         corrected = replace_story(original, "친구와 공원에서 20분 걸었다. 비가 와서 집으로 돌아왔다.")

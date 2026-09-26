@@ -38,3 +38,10 @@ test("TXT includes profile, additional facts, variants, warnings, old facts", ()
   const text = readableSession(snapshot, [snapshot]);
   for (const part of [input.work, input.clarifications[0].answer, ...levels, "원문을 확인하세요.", "이전 이야기 이력", "30분"]) assert.ok(text.includes(part));
 });
+test("backup accepts six-item outlines and still restores old three-item notes", () => {
+  for (const size of [3, 4, 5, 6]) {
+    const current = { ...snapshot, note: { ...snapshot.note, outline: Array(size).fill("확인한 사실") } };
+    assert.equal(parseSession(serializeSession(current, [])).current.note.outline.length, size);
+  }
+  assert.throws(() => serializeSession({ ...snapshot, note: { ...snapshot.note, outline: Array(7).fill("사실") } }, []));
+});

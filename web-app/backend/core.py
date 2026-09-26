@@ -145,8 +145,8 @@ class CardContent(BaseModel):
     )
     outline: list[str] = Field(
         min_length=3,
-        max_length=4,
-        description="KOREAN outline based on the learner facts",
+        max_length=6,
+        description="3 to 6 KOREAN outline items covering original AND additional learner facts",
     )
     phrases: list[Phrase] = Field(min_length=2, max_length=3)
     keywords: list[str] = Field(
@@ -429,7 +429,8 @@ SYSTEM_PROMPT = """제공된 영어 답변을 연습할 한국인 OPIc 학습자
 - question은 영어로 'Tell me about ...', 'Describe ...', 'Imagine ...' 등 학습자에게 시키는 과제입니다. 답변을 여기에 쓰지 마세요.
 - question, keywords, variations, phrases.english: 영어.
 - outline, missing_details, phrases.korean: 한국어.
-- 3~4개 뼈대, 2개 재사용 표현, 3~5개 키워드, 다른 과제로 바꾼 변형 질문 2개.
+- 3~6개 뼈대, 2개 재사용 표현, 3~5개 키워드, 다른 과제로 바꾼 변형 질문 2개.
+- 뼈대는 원문뿐 아니라 모든 추가 답변의 행동·감정·결말을 포함하세요. 앞부분만 요약하고 귀가 후 행동 같은 마지막 사실을 버리지 마세요. 사실이 많으면 관련 사실을 한 항목에 묶으세요.
 - 롤플레이 question은 Imagine으로 시작하고 한국어 뼈대도 실제 경험과 구분하세요.
 - 이미 제공된 정보나 답변에 필요 없는 상호명·주소 등은 다시 묻지 마세요. 부족한 필수 정보가 없으면 missing_details는 빈 배열입니다.
 - outline은 완결된 한국어 문장 또는 자연스러운 명사구로 쓰세요. 예: '30분 동안 걸었다', '친구와 대화'. 영어 어순을 그대로 옮기지 마세요.
@@ -443,6 +444,9 @@ prompt = ChatPromptTemplate.from_messages(
         ("system", SYSTEM_PROMPT),
         ("human", """실제 사용자 입력 JSON:
 {learner_json}
+
+원문과 추가 답변을 합친 확정 사실 (끝까지 반영):
+{facts}
 
 선택한 문체: {selected_level}
 아래 영어 답변에 맞는 질문·한국어 뼈대·표현·키워드를 만드세요.

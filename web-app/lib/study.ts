@@ -42,7 +42,7 @@ export const noteSchema = z.object({
   variants: z.record(choice(levels), z.string().min(10).max(2000)).default({}),
   quality_warnings: z.array(z.string().min(1).max(500)).max(6).default([]),
   question: z.string().min(5).max(500),
-  outline: z.array(z.string().min(1).max(400)).min(3).max(4),
+  outline: z.array(z.string().min(1).max(400)).min(3).max(6),
   answer: z.string().min(10).max(2000),
   phrases: z
     .array(z.object({ english: z.string().min(1).max(240), korean: z.string().min(1).max(240) }))
