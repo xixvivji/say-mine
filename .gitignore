@@ -18,3 +18,4 @@ dist/
 *.zip
 *.gguf
 .ollama/
+.test-build/

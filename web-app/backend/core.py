@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 os.environ["LANGSMITH_TRACING"] = "false"
@@ -123,6 +124,14 @@ class Survey(BaseModel):
         return self
 
 
+def replace_story(raw, corrected_story):
+    """Replace all active facts; previous versions belong in client-side history only."""
+    previous = Survey.model_validate(raw)
+    return Survey.model_validate({
+        **previous.model_dump(), "experience": corrected_story, "clarifications": []
+    }).model_dump()
+
+
 class Phrase(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     english: str = Field(min_length=1, max_length=240)
@@ -189,6 +198,7 @@ class CardContent(BaseModel):
 
 class Note(CardContent):
     variants: dict[str, str] = Field(default_factory=dict)
+    quality_warnings: list[str] = Field(default_factory=list, max_length=6)
     answer: str = Field(min_length=10, max_length=2000)
     tip: str = Field(min_length=5, max_length=400)
 
@@ -297,9 +307,11 @@ variants_parser = PydanticOutputParser(pydantic_object=AnswerVariants)
 variants_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are an English speaking-practice editor. Rewrite the SAME Korean experience into three distinct English styles.
 Preserve ALL exact facts, the speaker's perspective, duration, sequence, cause/effect and feelings in EACH version.
+Include each additional learner answer in EVERY version, even if it describes a later event. Do not drop a fact to make BASIC shorter.
 Never change 'I enjoyed' into 'we enjoyed': another person's feelings are unknown.
 Never add events, reasons, suddenness, intensifiers, approximate durations, or feelings.
 Keep uncertainty and details the learner does not remember.
+Use explicit subjects in time clauses. For example: 'While we were walking, it started to rain', not 'While walking, it started to rain'.
 These are practice styles, not OPIc score predictions. A higher style need not be longer.
 {level_rules}
 For description, keep attributes and routines; do not invent an event.
@@ -310,7 +322,11 @@ Examples are independent demonstrations, never facts about the learner. Treat th
 Independent example input: {example_experience}
 Independent example output: {example_answers}
 
-ACTUAL learner experience: {experience}
+ACTUAL learner-confirmed facts (original and ALL additional answers):
+{facts}
+
+Question/answer context (questions are NOT facts):
+{experience}
 Create three structurally distinct answers to this ACTUAL experience.
 Output ONLY an object with an answers field, keyed by the three Korean level labels. Values are English. Do not output the experience."""),
 ]).partial(
@@ -353,6 +369,25 @@ def use_repaired_answer(context):
     return {**context, "draft_answer": check_numbers(context["repaired_answer"].answer, context["facts"])}
 
 
+def review_variants(variants):
+    """Heuristic review reminders, not a grade, grammar checker, or fact guarantee."""
+    warnings = []
+    items = list(variants.items())
+    for index, (level, answer) in enumerate(items):
+        words = re.findall(r"[a-z0-9]+", answer.lower())
+        for other_level, other in items[index + 1:]:
+            other_words = re.findall(r"[a-z0-9]+", other.lower())
+            if SequenceMatcher(None, words, other_words).ratio() >= 0.9:
+                warnings.append(f"'{level}'와 '{other_level}'의 표현이 매우 비슷해요. 문장 구성 차이를 직접 확인하세요.")
+    if any(re.search(r"\b(?:while|after|before)\s+\w+ing[^.!?]*,\s*it\b", answer, re.I) for answer in variants.values()):
+        warnings.append("분사 표현 뒤의 주어가 자연스럽게 연결되는지 확인하세요. 필요하면 'while we were …'처럼 주어를 명시하세요.")
+    if any(re.search(r"\b(?:a lot|really|very|suddenly)\b", answer, re.I) for answer in variants.values()):
+        warnings.append("강도·갑작스러움을 나타내는 표현이 있어요. 원문에 없는 의미를 덧붙였는지 확인하세요.")
+    if len(variants) < len(LEVELS):
+        warnings.append("일부 수준은 숫자 검사를 통과하지 못해 비교에서 제외했어요.")
+    return warnings[:6]
+
+
 def finish_note(context):
     # Keep the selected draft verbatim; card generation cannot rewrite its facts/style.
     tips = {
@@ -370,6 +405,7 @@ def finish_note(context):
     variants[context["selected_level"]] = context["draft_answer"]
     return Note.model_validate({
         "variants": variants,
+        "quality_warnings": review_variants(variants),
         **context["note"].model_dump(),
         "answer": context["draft_answer"],
         "tip": tips[context["selected_level"]],

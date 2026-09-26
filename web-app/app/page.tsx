@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { SpeakingPractice, AnswerComparison, Followup } from "@/components/study-tools";
+import { SessionImport } from "@/components/session-import";
+import { nextHistory, readableSession, replaceStory, serializeSession, type SavedSession, type Snapshot } from "@/lib/session";
 import {
   ArrowRight,
   ArrowLeft,
@@ -24,12 +26,17 @@ import {
   homes,
   guideUrl,
   generationSchema,
+  surveySchema,
   statusSchema,
   errorSchema,
   type Survey,
   type Note,
 } from "@/lib/study";
 const steps = ["나의 배경", "나의 이야기", "말하기 노트"];
+const emptySurvey: Survey = {
+  work: "", student: "", home: "", level: levels[0], target: "미정",
+  topics: [], topic: "", type: "경험 이야기", experience: "", clarifications: [],
+};
 const levelGuides: Record<string, string> = {
   "짧고 쉬운 문장": "한 문장에 한 가지 내용을 담고, 익숙한 단어로 말해요.",
   "연결해서 설명하기": "입력에 있는 이유·결과·시간 관계를 접속사로 연결해요.",
@@ -78,19 +85,12 @@ function Choice({
 }
 export default function Home() {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Survey>({
-    work: "",
-    student: "",
-    home: "",
-    level: levels[0],
-    target: "미정",
-    topics: [],
-    topic: "",
-    type: "경험 이야기",
-    experience: "",
-    clarifications: [],
-  });
+  const [form, setForm] = useState<Survey>(emptySurvey);
   const [note, setNote] = useState<Note | null>(null);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [history, setHistory] = useState<Snapshot[]>([]);
+  const [unsaved, setUnsaved] = useState(false);
+  const [followupDirty, setFollowupDirty] = useState(false);
   const [practicing, setPracticing] = useState(false);
   const [revision, setRevision] = useState(0);
   const [generationMode, setGenerationMode] = useState("llm");
@@ -98,6 +98,13 @@ export default function Home() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("연결 확인 중");
+  const formDirty = JSON.stringify(form) !== JSON.stringify(snapshot?.input ?? emptySurvey);
+  useEffect(() => {
+    if (!unsaved && !formDirty && !followupDirty && !loading) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved, formDirty, followupDirty, loading]);
   const change = (key: keyof Survey, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }));
   async function checkConnection() {
@@ -110,10 +117,11 @@ export default function Home() {
     });
     return () => { active = false; };
   }, []);
-  async function generate(input: Survey = form) {
+  async function generate(input: Survey = form, reason: Snapshot["reason"] = "initial") {
     setLoading(true);
     setError("");
     try {
+      input = surveySchema.parse(input);
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -126,6 +134,10 @@ export default function Home() {
             "생성하지 못했습니다. 다시 시도해 주세요.",
         );
       const data = generationSchema.parse(raw);
+      setHistory((items) => nextHistory(items, snapshot));
+      setSnapshot({ ...data, input, generatedAt: new Date().toISOString(), reason });
+      setUnsaved(true);
+      setFollowupDirty(false);
       setNote(data.note);
       setForm(input);
       setRevision((value) => value + 1);
@@ -141,23 +153,39 @@ export default function Home() {
     }
   }
   function noteText() {
-    return note
-      ? `# ${form.topic} · ${form.type}\n\n${note.question}\n\n${note.outline.join(" → ")}\n\n${note.answer}\n\n${note.phrases.map((p) => `${p.english} — ${p.korean}`).join("\n")}\n\n${note.keywords.join(", ")}\n\n${note.variations.join("\n")}\n\n${note.missing_details.join("\n")}\n\n${note.tip}`
-      : "";
+    return snapshot ? readableSession(snapshot, history) : "";
   }
-  function downloadNote() {
+  function loadSession(session: SavedSession) {
+    setSnapshot(session.current); setHistory(session.history);
+    setForm(session.current.input); setNote(session.current.note); setGenerationMode(session.current.mode);
+    setUnsaved(false); setFollowupDirty(false); setPracticing(false);
+    setRevision(value => value + 1); setStep(2); setError("");
+    setNotice("저장한 학습을 불러왔어요. 타이머는 새로 시작해요.");
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  function correctStory(story: string) {
+    try { void generate(replaceStory(form, story), "correction"); }
+    catch { setError("정정할 이야기는 5–1,500자로 입력해 주세요."); }
+  }
+  function downloadNote(format: "txt" | "json") {
+    if (!snapshot) return;
+    let content: string;
+    try {
+      content = format === "json" ? serializeSession(snapshot, history) : noteText();
+    } catch { setNotice("저장할 내용을 확인하지 못했어요. 현재 노트는 유지됩니다."); return; }
     const url = URL.createObjectURL(
-      new Blob([noteText()], { type: "text/plain;charset=utf-8" }),
+      new Blob([content], { type: format === "json" ? "application/json" : "text/plain;charset=utf-8" }),
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "say-mine-note.txt";
+    anchor.download = `say-mine-${format === "json" ? "session" : "note"}.${format}`;
     anchor.hidden = true;
     document.body.appendChild(anchor);
     try {
       anchor.click();
+      if (format === "json") setUnsaved(false);
       setNotice(
-        "다운로드를 요청했어요. 파일이 보이지 않으면 브라우저의 다운로드 목록을 확인하거나 노트를 복사해 주세요.",
+        "다운로드를 요청했어요. 다운로드 목록에서 파일을 확인해 주세요. 아직 반영하지 않은 입력과 타이머는 저장하지 않아요.",
       );
     } catch {
       setNotice("다운로드를 요청하지 못했어요. 노트 복사를 이용해 주세요.");
@@ -507,7 +535,7 @@ export default function Home() {
                 ))}
               </ul>
               <p className="tip">{note.tip}</p>
-              <Followup key={`followup-${revision}`} questions={note.missing_details} experience={form.experience} history={form.clarifications} loading={loading} error={error} onSubmit={(clarifications) => void generate({ ...form, clarifications })} />
+              <Followup key={`followup-${revision}`} questions={note.missing_details} experience={form.experience} history={form.clarifications} loading={loading} error={error} onSubmit={(clarifications) => void generate({ ...form, clarifications }, "addition")} onCorrect={correctStory} onDirty={setFollowupDirty} />
               <div className="export-actions">
                 <button
                   className="secondary"
@@ -522,17 +550,22 @@ export default function Home() {
                 >
                   <Copy size={17} /> 노트 복사
                 </button>
-                <button className="secondary" onClick={downloadNote}>
-                  <Download size={17} /> 파일 저장
+                <button className="secondary" onClick={() => downloadNote("txt")}>
+                  <Download size={17} /> 읽기용 TXT
+                </button>
+                <button className="primary" onClick={() => downloadNote("json")}>
+                  <Download size={17} /> 이어하기용 JSON
                 </button>
               </div>
-              <p role="status">{notice}</p>
+              <p className="footnote">설문·확정한 이야기·세 수준 답변과 이전 노트 최대 10개를 JSON에 저장해요. 이전 기록은 모델에 전송하지 않아요. 개인정보가 담길 수 있으니 공유 전에 확인해 주세요.</p>
               </div>
               <div className="actions">
                 <button
                   className="secondary"
                   disabled={loading}
                   onClick={() => {
+                    if (followupDirty && !window.confirm("아직 반영하지 않은 추가 답변·정정 내용은 사라집니다. 이야기 입력으로 이동할까요?")) return;
+                    setFollowupDirty(false);
                     setPracticing(false);
                     setStep(1);
                     setError("");
@@ -544,6 +577,8 @@ export default function Home() {
               </div>
             </section>
           )}
+          <p role="status">{notice}</p>
+          <SessionImport disabled={loading} onLoad={loadSession} />
           <footer>
             <span>say.mine · 공식 OPIc 서비스와 무관한 학습 도구</span>
             <a href={guideUrl} target="_blank" rel="noreferrer">

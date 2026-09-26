@@ -40,16 +40,17 @@ export const surveySchema = z
   );
 export const noteSchema = z.object({
   variants: z.record(choice(levels), z.string().min(10).max(2000)).default({}),
+  quality_warnings: z.array(z.string().min(1).max(500)).max(6).default([]),
   question: z.string().min(5).max(500),
-  outline: z.array(z.string()).min(3).max(4),
+  outline: z.array(z.string().min(1).max(400)).min(3).max(4),
   answer: z.string().min(10).max(2000),
   phrases: z
-    .array(z.object({ english: z.string(), korean: z.string() }))
+    .array(z.object({ english: z.string().min(1).max(240), korean: z.string().min(1).max(240) }))
     .min(2)
     .max(3),
-  keywords: z.array(z.string()).min(3).max(5),
-  variations: z.array(z.string()).length(2),
-  missing_details: z.array(z.string()).max(3),
+  keywords: z.array(z.string().min(1).max(400)).min(3).max(5),
+  variations: z.array(z.string().min(1).max(400)).length(2),
+  missing_details: z.array(z.string().min(1).max(400)).max(3),
   tip: z.string().min(5).max(400),
 });
 export type Survey = z.infer<typeof surveySchema>;

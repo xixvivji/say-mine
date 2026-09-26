@@ -25,6 +25,8 @@ from .core import (
     AnswerVariants,
     variants_prompt,
     check_numbers,
+    replace_story,
+    review_variants,
 )
 from . import main
 
@@ -87,6 +89,33 @@ FIXTURE = dict(
 
 
 class CoreTests(unittest.TestCase):
+    def test_correction_replaces_old_facts_and_questions(self):
+        original = {**BASE_INPUT, "clarifications": [{"question": "30분 걸었나요?", "answer": "30분 걸었다."}]}
+        corrected = replace_story(original, "친구와 공원에서 20분 걸었다. 비가 와서 집으로 돌아왔다.")
+        self.assertEqual(corrected["clarifications"], [])
+        context = prepare_context(corrected, "")
+        for field in ("facts", "experience", "learner_json"):
+            self.assertNotIn("30", context[field])
+            self.assertIn("20", context[field])
+        self.assertEqual(original["clarifications"][0]["answer"], "30분 걸었다.")
+        self.assertEqual(check_numbers("We walked for 20 minutes.", context["facts"]), "We walked for 20 minutes.")
+        with self.assertRaises(OutputParserException):
+            check_numbers("We walked for 30 minutes.", context["facts"])
+        for invalid in (" ", "가" * 1501):
+            with self.assertRaises(ValidationError):
+                replace_story(original, invalid)
+
+    def test_quality_review_is_bounded_and_does_not_rewrite(self):
+        variants = {level: "While walking, it suddenly started to rain. I was very happy." for level in LEVELS}
+        before = dict(variants)
+        warnings = review_variants(variants)
+        self.assertTrue(any("매우 비슷" in text for text in warnings))
+        self.assertTrue(any("주어" in text for text in warnings))
+        self.assertTrue(any("강도" in text for text in warnings))
+        self.assertLessEqual(len(warnings), 6)
+        self.assertEqual(variants, before)
+        self.assertTrue(any("제외" in text for text in review_variants({LEVELS[0]: "I went home."})))
+
     def test_all_examples_validate(self):
         for case in CASES:
             Survey.model_validate(case["input"])

@@ -16,7 +16,8 @@ export function AnswerComparison({ note, level }: { note: Note; level: string })
       {levels.map((item) => <button key={item} className="secondary" aria-pressed={selected === item} onClick={() => setSelected(item)}>{item}</button>)}
     </div>
     <p className="style-guide">{guides[levels.indexOf(selected)]}</p>
-    {note.variants[selected] ? <p className="comparison-answer" lang="en">{note.variants[selected]}</p> : <p role="status">이 수준의 초안은 검증을 통과하지 못해 표시하지 않았어요.</p>}
+    {note.variants[selected] ? <p className="comparison-answer" lang="en">{note.variants[selected]}</p> : <p role="status">이 수준의 초안은 숫자 검사를 통과하지 못했거나 저장된 초안이 없어 표시하지 않았어요.</p>}
+    {note.quality_warnings.length > 0 && <div className="quality-review"><strong>표현 점검 안내 · 자동 채점 아님</strong><ul>{note.quality_warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
     <p className="footnote">원래 이야기의 시간·인물·감정이 그대로인지 비교해 주세요.</p>
   </details>;
 }
@@ -72,31 +73,55 @@ export function SpeakingPractice({ note }: { note: Note }) {
   </section>;
 }
 
-export function Followup({ questions, experience, history, loading, error, onSubmit }: {
-  questions: string[]; experience: string; history: Clarification[]; loading: boolean; error: string; onSubmit: (clarifications: Clarification[]) => void;
+export function Followup({ questions, experience, history, loading, error, onSubmit, onCorrect, onDirty }: {
+  questions: string[]; experience: string; history: Clarification[]; loading: boolean; error: string;
+  onSubmit: (clarifications: Clarification[]) => void; onCorrect: (story: string) => void; onDirty: (dirty: boolean) => void;
 }) {
   const prompts = questions.length ? questions : ["추가하거나 더 구체적으로 설명할 내용이 있나요?"];
   const [answers, setAnswers] = useState<string[]>(() => prompts.map(() => ""));
+  const originalStory = [experience, ...history.map(item => item.answer)].join("\n");
+  const [mode, setMode] = useState<"add" | "correct">("add");
+  const [correctedStory, setCorrectedStory] = useState(originalStory);
+  const [confirming, setConfirming] = useState(false);
   const additions = answers.flatMap((answer, index) => answer.trim() ? [{ question: prompts[index], answer: answer.trim() }] : []);
   const combined = [...history, ...additions];
   const characterCount = experience.length + combined.reduce((sum, item) => sum + item.answer.length, 0);
   const tooLong = characterCount > 1500 || combined.length > 12;
   return <section className="study-panel followup-panel" aria-labelledby="followup-title">
     <h3 id="followup-title">{questions.length ? "조금 더 들려주세요" : "이야기를 더해 노트 다듬기"}</h3>
-    <p>답한 내용을 기존 이야기에 더해 새 노트를 만들어요. 기억나는 질문에만 답해도 괜찮아요.</p>
+    <div className="study-options" role="group" aria-label="이야기 수정 방식">
+      <button className="secondary" disabled={loading} aria-pressed={mode === "add"} onClick={() => setMode("add")}>정보 추가</button>
+      <button className="secondary" disabled={loading} aria-pressed={mode === "correct"} onClick={() => setMode("correct")}>기존 내용 정정</button>
+    </div>
+    <p>{mode === "add" ? "새로운 사실만 추가해 주세요. 기존 시간·인물 등을 바꾸려면 ‘기존 내용 정정’을 선택하세요." : "최종적으로 맞는 이야기 전체를 적어주세요. 이 내용으로 기존 원문과 추가 답변을 교체하며, 이전 기록은 모델에 보내지 않습니다."}</p>
     <details className="source-story"><summary>현재 노트의 원문 보기</summary><p>{experience}</p>{history.map((item, index) => <p key={index}><strong>{item.question}</strong><br />{item.answer}</p>)}</details>
-    <form onSubmit={(event) => { event.preventDefault(); if (additions.length && !tooLong && !loading) onSubmit(combined); }}>
+    {mode === "add" ? <form onSubmit={(event) => { event.preventDefault(); if (additions.length && !tooLong && !loading) onSubmit(combined); }}>
       <fieldset disabled={loading}>
         {prompts.map((question, index) => <div className="followup-field" key={index}>
           <label htmlFor={`followup-${index}`}>{question}</label>
-          <textarea id={`followup-${index}`} rows={3} maxLength={1500} value={answers[index]} onChange={(event) => setAnswers((values) => values.map((value, i) => i === index ? event.target.value : value))} placeholder="실제로 기억하는 내용을 한국어로 적어주세요." />
+          <textarea id={`followup-${index}`} rows={3} maxLength={1500} value={answers[index]} onChange={(event) => {
+            const next = answers.map((value, i) => i === index ? event.target.value : value);
+            setAnswers(next); onDirty(next.some(value => !!value.trim()) || correctedStory !== originalStory);
+          }} placeholder="‘네/아니요’만 적기보다 실제 내용을 문장으로 적어주세요." />
         </div>)}
         <p className="footnote">원문과 추가 답변 합계 {characterCount.toLocaleString()} / 1,500자</p>
         {tooLong && <p role="alert" className="error">원문과 답변은 합계 1,500자, 추가 답변은 최대 12개까지 가능해요. 답변을 줄이거나 이전 화면에서 원문을 정리해 주세요.</p>}
-        {error && <p role="alert" className="error">{error} 기존 노트와 추가 답변은 그대로 있어요.</p>}
         <button className="primary" type="submit" disabled={!additions.length || tooLong || loading}>{loading ? "보완한 노트 만드는 중…" : "답변을 더해 노트 다시 만들기"}</button>
         {loading && <p role="status">기존 이야기와 추가 답변으로 노트를 다시 만들고 있어요.</p>}
       </fieldset>
-    </form>
+    </form> : <div className="correction-editor">
+      <label htmlFor="corrected-story">정정 후 확정할 이야기 전체</label>
+      <textarea id="corrected-story" rows={6} maxLength={1500} disabled={loading} value={correctedStory} onChange={(event) => {
+        const next = event.target.value; setCorrectedStory(next); setConfirming(false);
+        onDirty(next !== originalStory || answers.some(value => !!value.trim()));
+      }} />
+      <p className="footnote">{correctedStory.trim().length} / 1,500자 · 과거의 잘못된 내용은 지우고 올바른 사실만 남겨주세요.</p>
+      {!confirming ? <button className="primary" disabled={loading || correctedStory.trim().length < 5 || correctedStory.trim().length > 1500 || correctedStory.trim() === originalStory.trim()} onClick={() => setConfirming(true)}>최종 이야기 확인</button> : <div className="correction-preview">
+        <strong>다음 생성에 사용할 사실</strong><p>{correctedStory.trim()}</p>
+        <p className="footnote">이 내용만 경험 사실로 모델에 전달됩니다. 기존 내용은 성공 후 이전 노트 이력에 보관합니다.</p>
+        <button className="primary" disabled={loading} onClick={() => onCorrect(correctedStory.trim())}>{loading ? "정정한 노트 만드는 중…" : "이 이야기로 확정하고 재생성"}</button>
+      </div>}
+    </div>}
+    {error && <p role="alert" className="error">{error} 기존 노트와 작성 중인 내용은 그대로 있어요.</p>}
   </section>;
 }

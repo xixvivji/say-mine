@@ -472,6 +472,7 @@ textarea::placeholder {
 }
 .export-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 24px 0 8px;
 }
@@ -660,6 +661,15 @@ footer p {
 .followup-panel .primary { margin-top: 14px; }
 .source-story { margin: 18px 0; font-size: 14px; }
 .source-story p { margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; background: #f7f8fc; padding: 14px; border-radius: 8px; }
+.quality-review { margin-top: 18px; padding: 16px; border-radius: 10px; background: #fff8e8; font-size: 14px; }
+.quality-review ul { padding-left: 20px; margin-top: 8px; }
+.quality-review li { margin-top: 8px; }
+.correction-editor label, .session-import label { display: block; font-weight: 600; margin: 18px 0 10px; }
+.correction-preview, .import-preview { margin-top: 18px; padding: 18px; border: 1px solid #cdd5fb; border-radius: 10px; background: #f7f8fc; }
+.correction-preview p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 12px; }
+.session-import { margin-top: 32px; border-top: 1px solid #dce1ed; padding-top: 12px; }
+.session-import input { max-width: 100%; }
+.import-preview .study-options { margin-bottom: 0; }
 @media (max-width: 600px) {
   .study-panel { padding: 18px; }
   .practice-entry { align-items: stretch; flex-direction: column; }
