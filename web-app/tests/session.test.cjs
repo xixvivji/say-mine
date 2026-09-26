@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseSession, serializeSession, nextHistory, replaceStory, readableSession, sourceSegments, MAX_BACKUP_BYTES } = require("../.test-build/session.js");
+const { parseSession, serializeSession, nextHistory, replaceStory, sameSurvey, readableSession, sourceSegments, MAX_BACKUP_BYTES } = require("../.test-build/session.js");
 const { levels, surveySchema } = require("../.test-build/study.js");
 const input = surveySchema.parse({ work: "일 경험 없음", student: "학생", home: "가족과 거주", target: "IM2", level: levels[0], topics: ["공원 가기"], topic: "공원 가기", type: "경험 이야기", experience: "친구와 공원에서 30분 걸었다.", clarifications: [{ question: "기분은 어땠나요?", answer: "기분이 좋았다." }] });
 const snapshot = {
@@ -11,6 +11,11 @@ test("JSON roundtrip preserves inputs, previous notes, variants and warnings", (
   const restored = parseSession(serializeSession(snapshot, [snapshot]));
   assert.deepEqual(restored.current, snapshot);
   assert.deepEqual(restored.history, [snapshot]);
+});
+test("saved-input equality ignores object key order but detects changed facts", () => {
+  assert.equal(sameSurvey(input, Object.fromEntries(Object.entries(input).reverse())), true);
+  assert.equal(sameSurvey(input, { ...input, experience: input.experience + " 다른 이야기" }), false);
+  assert.equal(sameSurvey(input, { ...input, clarifications: [] }), false);
 });
 test("source comparison preserves literal facts, decimals, negation and uncertainty", () => {
   const source = { ...input, experience: "  3.5km 걸었다. 카페에는 안 갔다.\n날씨는 모른다.", clarifications: [{ question: "커피를 마셨나요?", answer: "아니요. 집에서 쉬었다." }] };

@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { SpeakingPractice, AnswerComparison, Followup } from "@/components/study-tools";
 import { SessionImport } from "@/components/session-import";
-import { nextHistory, readableSession, replaceStory, serializeSession, type SavedSession, type Snapshot } from "@/lib/session";
+import { LocalSave } from "@/components/local-save";
+import { useLocalWorkspace } from "@/hooks/use-local-workspace";
+import { loadBrowserWorkspace, type WorkspaceData, type WorkspaceLoad } from "@/lib/local-workspace";
+import { nextHistory, readableSession, replaceStory, sameSurvey, serializeSession, type SavedSession, type Snapshot } from "@/lib/session";
 import {
   ArrowRight,
   ArrowLeft,
@@ -84,27 +87,40 @@ function Choice({
   );
 }
 export default function Home() {
-  const [step, setStep] = useState(0);
-  const [form, setForm] = useState<Survey>(emptySurvey);
-  const [note, setNote] = useState<Note | null>(null);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [history, setHistory] = useState<Snapshot[]>([]);
-  const [unsaved, setUnsaved] = useState(false);
+  const [initial, setInitial] = useState<WorkspaceLoad | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadBrowserWorkspace().then(value => { if (active) setInitial(value); });
+    return () => { active = false; };
+  }, []);
+  if (!initial) return <main className="main"><p role="status">저장한 학습을 확인하고 있어요…</p></main>;
+  return <StudyWorkspace initial={initial} />;
+}
+
+function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
+  const restored = initial.record?.data;
+  const [step, setStep] = useState<WorkspaceData["step"]>(restored?.step ?? 0);
+  const [form, setForm] = useState<Survey>(restored?.form ?? emptySurvey);
+  const [note, setNote] = useState<Note | null>(restored?.current?.note ?? null);
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(restored?.current ?? null);
+  const [history, setHistory] = useState<Snapshot[]>(restored?.history ?? []);
+  const [unsaved, setUnsaved] = useState(Boolean(restored?.current));
   const [followupDirty, setFollowupDirty] = useState(false);
   const [practicing, setPracticing] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [generationMode, setGenerationMode] = useState("llm");
+  const [generationMode, setGenerationMode] = useState(restored?.current?.mode ?? "llm");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(restored ? "이 브라우저에 저장한 학습을 복원했어요. 보완 답변 작성창과 타이머는 새로 시작해요." : "");
   const [connection, setConnection] = useState("연결 확인 중");
-  const formDirty = JSON.stringify(form) !== JSON.stringify(snapshot?.input ?? emptySurvey);
+  const local = useLocalWorkspace({ form, step, current: snapshot, history }, initial);
+  const formDirty = !sameSurvey(form, snapshot?.input ?? emptySurvey);
   useEffect(() => {
-    if (!unsaved && !formDirty && !followupDirty && !loading) return;
+    if ((!unsaved && !formDirty || local.currentSaved) && !followupDirty && !loading) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [unsaved, formDirty, followupDirty, loading]);
+  }, [unsaved, formDirty, followupDirty, loading, local.currentSaved]);
   const change = (key: keyof Survey, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }));
   async function checkConnection() {
@@ -271,6 +287,7 @@ export default function Home() {
           <div className="progress-track">
             <div style={{ width: `${((step + 1) / 3) * 100}%` }} />
           </div>
+          <LocalSave local={local} disabled={loading} />
           {step === 0 && (
             <section>
               <div className="section-head">

@@ -675,6 +675,12 @@ footer p {
 .session-import { margin-top: 32px; border-top: 1px solid #dce1ed; padding-top: 12px; }
 .session-import input { max-width: 100%; }
 .import-preview .study-options { margin-bottom: 0; }
+.local-save { margin: 22px 0 30px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 12px; background: #f7f8fc; }
+.local-save-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 14px; }
+.local-save-heading span { color: #4656ab; }
+.local-save > p { margin-top: 10px; font-size: 14px; line-height: 1.65; }
+.local-save .study-options { margin: 12px 0 0; }
+.local-save .correction-preview button { margin: 12px 8px 0 0; }
 @media (max-width: 600px) {
   .fact-comparison { grid-template-columns: minmax(0, 1fr); }
   .study-panel { padding: 18px; }

@@ -18,6 +18,11 @@ export const sessionSchema = z.object({
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type SavedSession = z.infer<typeof sessionSchema>;
 
+export function sameSurvey(left: Survey, right: Survey) {
+  return Object.keys(left).length === Object.keys(right).length && Object.entries(left).every(([key, value]) =>
+    JSON.stringify(value) === JSON.stringify(right[key as keyof Survey]));
+}
+
 export function storyFacts(input: Survey) {
   return [input.experience, ...input.clarifications.map(item => item.answer)].join("\n");
 }
