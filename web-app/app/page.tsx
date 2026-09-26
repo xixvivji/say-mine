@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { SpeakingPractice, AnswerComparison, Followup } from "@/components/study-tools";
+import { SpeakingPractice, AnswerComparison, Followup, PracticeHistory } from "@/components/study-tools";
 import { SessionImport } from "@/components/session-import";
 import { LocalSave } from "@/components/local-save";
 import { StudyLibrary } from "@/components/study-library";
-import { deleteHistoryRecord, toggleFavorite, type RecordId } from "@/lib/library";
+import { deleteHistoryRecord, recordPracticeCompletion, toggleFavorite, type RecordId } from "@/lib/library";
 import { useLocalWorkspace } from "@/hooks/use-local-workspace";
 import { loadBrowserWorkspace, type WorkspaceData, type WorkspaceLoad } from "@/lib/local-workspace";
 import { nextHistory, readableSession, replaceStory, sameSurvey, serializeSession, type SavedSession, type Snapshot } from "@/lib/session";
@@ -193,6 +193,18 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
     setNotice("저장한 학습을 불러왔어요. 타이머는 새로 시작해요.");
     window.scrollTo({ top: 0, behavior: "instant" });
   }
+  function completePractice(id: RecordId) {
+    if (loading) return false;
+    try {
+      const updated = recordPracticeCompletion({ current: snapshot, history }, id);
+      setSnapshot(updated.current); setHistory(updated.history); setUnsaved(true);
+      setNotice("복습 1회를 기록했어요. 자동 저장 상태를 확인하거나 JSON으로 백업해 주세요.");
+      return true;
+    } catch (failure) {
+      setNotice(failure instanceof Error ? failure.message : "완료 이력을 반영하지 못했어요.");
+      return false;
+    }
+  }
   function correctStory(story: string) {
     try { void generate(replaceStory(form, story), "correction"); }
     catch { setError("정정할 이야기는 5–1,500자로 입력해 주세요."); }
@@ -306,7 +318,7 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
             <button className="secondary" disabled={loading} aria-pressed={!libraryOpen} onClick={() => setLibraryOpen(false)}>현재 작업</button>
             <button className="secondary" disabled={loading} aria-pressed={libraryOpen} onClick={() => { setLibraryOpen(true); setPracticing(false); setNotice(""); }}>학습 기록 보관함 ({history.length + (snapshot ? 1 : 0)})</button>
           </div>
-          {libraryOpen && <StudyLibrary records={{ current: snapshot, history }} disabled={loading} onFavorite={id => updateLibrary(id, "favorite")} onDelete={id => updateLibrary(id, "delete")} onBackup={() => downloadNote("json")} />}
+          {libraryOpen && <StudyLibrary records={{ current: snapshot, history }} disabled={loading} onFavorite={id => updateLibrary(id, "favorite")} onDelete={id => updateLibrary(id, "delete")} onBackup={() => downloadNote("json")} onComplete={completePractice} />}
           <div hidden={libraryOpen}>
           {step === 0 && (
             <section>
@@ -515,12 +527,15 @@ function StudyWorkspace({ initial }: { initial: WorkspaceLoad }) {
                 </p>
               </div>
               {generationMode === "llm" && (
+                <PracticeHistory practice={snapshot?.practice} />
+              )}
+              {generationMode === "llm" && (
                 <div className="practice-entry">
                   <div><strong>내 이야기, 이제 말해볼까요?</strong><p>대본을 조금씩 가리고 기억해서 말해보세요.</p></div>
                   <button className="primary" disabled={loading} onClick={() => setPracticing(!practicing)}>{practicing ? "노트로 돌아가기" : "말하기 연습 시작"}</button>
                 </div>
               )}
-              {practicing && <SpeakingPractice key={revision} note={note} />}
+              {practicing && <SpeakingPractice key={revision} note={note} disabled={loading} onComplete={() => completePractice("current")} />}
               <div hidden={practicing}>
               <div className="question">
                 <span>연습 질문</span>

@@ -701,7 +701,14 @@ footer p {
 .library-card .correction-preview { padding: 12px; font-size: 13px; }
 .library-empty { display: grid; justify-items: center; gap: 14px; padding: 38px 20px; border: 1px dashed var(--border); border-radius: 14px; color: #65708c; }
 .library-review > .section-head { margin-top: 24px; }
+.practice-history { margin: 14px 0; padding: 12px 14px; border-radius: 9px; background: #f2f5ff; color: #4656ab; font-size: 13px; }
+.practice-history strong, .practice-history span { display: block; }
+.library-progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 22px 0 12px; }
+.library-progress > div { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: #f7f8fc; }
+.library-progress dt { font-size: 12px; color: #65708c; }
+.library-progress dd { margin: 8px 0 0; color: var(--primary); font-size: 23px; font-weight: 700; }
 @media (max-width: 600px) {
+  .library-progress { grid-template-columns: minmax(0, 1fr); }
   .library-filters, .library-grid { grid-template-columns: minmax(0, 1fr); }
   .fact-comparison { grid-template-columns: minmax(0, 1fr); }
   .study-panel { padding: 18px; }

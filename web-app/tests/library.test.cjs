@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { libraryEntries, filterLibrary, toggleFavorite, deleteHistoryRecord } = require("../.test-build/library.js");
-const { nextHistory, parseSession, serializeSession, snapshotSchema, MAX_HISTORY } = require("../.test-build/session.js");
+const { libraryEntries, filterLibrary, toggleFavorite, deleteHistoryRecord, recordPracticeCompletion, orderLibrary, practiceTotals } = require("../.test-build/library.js");
+const { nextHistory, parseSession, serializeSession, readableSession, snapshotSchema, MAX_HISTORY } = require("../.test-build/session.js");
 const { saveWorkspace, parseWorkspace } = require("../.test-build/local-workspace.js");
 const { levels } = require("../.test-build/study.js");
 
@@ -89,4 +89,88 @@ test("all-favorite capacity fails safely, and unpinning frees space", () => {
   assert.deepEqual(nextHistory(history, { ...current, favorite: false }), history);
   const unpinned = toggleFavorite({ current, history }, 3);
   assert.equal(nextHistory(unpinned.history, current).length, MAX_HISTORY);
+});
+
+const firstCompletedAt = "2026-09-26T01:00:00.000Z";
+const secondCompletedAt = "2026-09-27T01:00:00.000Z";
+test("recording completion updates only the chosen note metadata, not its facts or draft", () => {
+  const records = { current: note(3), history: [note(1, "공원 가기", true), note(2)] };
+  const before = JSON.stringify(records);
+  const updated = recordPracticeCompletion(records, 0, firstCompletedAt);
+  assert.equal(updated.current, records.current);
+  assert.equal(updated.history[1], records.history[1]);
+  assert.deepEqual(updated.history[0].practice, { completedCount: 1, lastCompletedAt: firstCompletedAt });
+  assert.deepEqual(updated.history[0].input, records.history[0].input);
+  assert.deepEqual(updated.history[0].note, records.history[0].note);
+  assert.equal(updated.history[0].generatedAt, records.history[0].generatedAt);
+  assert.equal(updated.history[0].favorite, true);
+  assert.equal(JSON.stringify(records), before);
+});
+test("a subsequent completed session increments the count and updates the completion time", () => {
+  const records = { current: note(3), history: [note(1)] };
+  const first = recordPracticeCompletion(records, "current", firstCompletedAt);
+  const second = recordPracticeCompletion(first, "current", secondCompletedAt);
+  assert.deepEqual(second.current.practice, { completedCount: 2, lastCompletedAt: secondCompletedAt });
+  assert.equal(first.current.practice.completedCount, 1);
+});
+test("invalid, missing, clarification or overflowing completion cannot mutate records", () => {
+  const records = { current: note(3), history: [{ ...note(1), mode: "clarification" }] };
+  const before = JSON.stringify(records);
+  for (const id of [0, -1, 3, 0.5]) assert.throws(() => recordPracticeCompletion(records, id, firstCompletedAt));
+  assert.throws(() => recordPracticeCompletion(records, "current", "not-a-date"));
+  assert.throws(() => recordPracticeCompletion({ current: null, history: [] }, "current"));
+  const full = { current: { ...note(1), practice: { completedCount: 1_000_000, lastCompletedAt: firstCompletedAt } }, history: [] };
+  assert.throws(() => recordPracticeCompletion(full, "current", secondCompletedAt));
+  assert.equal(full.current.practice.completedCount, 1_000_000);
+  assert.equal(JSON.stringify(records), before);
+});
+test("practice filters exclude clarification-only notes and combine with other filters", () => {
+  const done = recordPracticeCompletion({ current: note(3, "공원 가기", true), history: [] }, "current", firstCompletedAt).current;
+  const entries = libraryEntries({ current: done, history: [note(1), { ...note(2), mode: "clarification" }] });
+  assert.deepEqual(filterLibrary(entries, "", "", false, "new").map(item => item.id), [0]);
+  assert.deepEqual(filterLibrary(entries, "공원 가기", "friend", true, "completed").map(item => item.id), ["current"]);
+  assert.equal(filterLibrary(entries, "", "", false).length, 3);
+});
+test("practice ordering prioritizes uncompleted notes, then oldest completed, with clarification last", () => {
+  const done = recordPracticeCompletion({ current: note(2), history: [] }, "current", firstCompletedAt).current;
+  const recent = { ...done, generatedAt: note(3).generatedAt, practice: { completedCount: 2, lastCompletedAt: secondCompletedAt } };
+  const entries = libraryEntries({ current: recent, history: [done, note(5), note(4), { ...note(1), mode: "clarification" }] });
+  const before = JSON.stringify(entries);
+  assert.deepEqual(orderLibrary(entries, "practice").map(item => item.id), [2, 1, 0, "current", 3]);
+  assert.deepEqual(orderLibrary(entries, "newest"), entries);
+  assert.equal(JSON.stringify(entries), before);
+});
+test("totals describe retained playable notes only, not lifetime activity or skill", () => {
+  const done = recordPracticeCompletion({ current: note(3), history: [] }, "current", firstCompletedAt).current;
+  const entries = libraryEntries({ current: done, history: [note(1), { ...note(2), mode: "clarification" }] });
+  assert.deepEqual(practiceTotals(entries), { available: 2, unpracticed: 1, completedSessions: 1 });
+  assert.deepEqual(practiceTotals([]), { available: 0, unpracticed: 0, completedSessions: 0 });
+});
+test("JSON, TXT and autosave preserve completion metadata and still accept old backups", () => {
+  const records = recordPracticeCompletion({ current: note(3, "공원 가기", true), history: [note(1)] }, "current", firstCompletedAt);
+  const restored = parseSession(serializeSession(records.current, records.history));
+  assert.deepEqual(restored.current.practice, records.current.practice);
+  assert.equal(restored.history[0].practice, undefined);
+  assert.match(readableSession(records.current, records.history), /4단계 완료 1회/);
+  const data = { ...records, form: { ...records.current.input, experience: "작성 중인 다른 이야기" }, step: 1 };
+  const storage = { getItem: () => null, setItem: () => {} };
+  assert.deepEqual(parseWorkspace(saveWorkspace(storage, null, data)).data, data);
+  assert.equal(parseSession(serializeSession(note(1), [])).current.practice, undefined);
+});
+test("malformed practice metadata is rejected instead of silently inflated or coerced", () => {
+  for (const practice of [
+    { completedCount: 0, lastCompletedAt: firstCompletedAt },
+    { completedCount: -1, lastCompletedAt: firstCompletedAt },
+    { completedCount: 1.5, lastCompletedAt: firstCompletedAt },
+    { completedCount: "1", lastCompletedAt: firstCompletedAt },
+    { completedCount: 1, lastCompletedAt: "invalid" },
+    { completedCount: 1, lastCompletedAt: firstCompletedAt, extra: true },
+  ]) assert.throws(() => serializeSession({ ...note(1), practice }, []));
+  assert.throws(() => serializeSession({ ...note(1), mode: "clarification", practice: { completedCount: 1, lastCompletedAt: firstCompletedAt } }, []));
+});
+test("archiving preserves old practice metadata without copying it to a new generation", () => {
+  const done = recordPracticeCompletion({ current: note(1), history: [] }, "current", firstCompletedAt).current;
+  const history = nextHistory([], done);
+  assert.deepEqual(history[0].practice, done.practice);
+  assert.equal(note(2).practice, undefined);
 });

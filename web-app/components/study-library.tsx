@@ -1,26 +1,30 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Download, Star, Trash2 } from "lucide-react";
-import { AnswerComparison, SpeakingPractice } from "@/components/study-tools";
-import { filterLibrary, libraryEntries, type RecordId, type StudyRecords } from "@/lib/library";
+import { AnswerComparison, PracticeHistory, SpeakingPractice } from "@/components/study-tools";
+import { filterLibrary, libraryEntries, orderLibrary, practiceTotals, type LibraryOrder, type PracticeFilter, type RecordId, type StudyRecords } from "@/lib/library";
 import { MAX_HISTORY, storyFacts } from "@/lib/session";
 
 const reasonLabels = { initial: "새 이야기", addition: "정보 추가", correction: "내용 정정" };
 const dateLabel = (value: string) => new Date(value).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
 
-export function StudyLibrary({ records, disabled, onFavorite, onDelete, onBackup }: {
+export function StudyLibrary({ records, disabled, onFavorite, onDelete, onBackup, onComplete }: {
   records: StudyRecords; disabled: boolean;
   onFavorite: (id: RecordId) => void; onDelete: (id: RecordId) => void; onBackup: () => void;
+  onComplete: (id: RecordId) => boolean;
 }) {
   const [topic, setTopic] = useState("");
   const [search, setSearch] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [practiceFilter, setPracticeFilter] = useState<PracticeFilter>("all");
+  const [order, setOrder] = useState<LibraryOrder>("newest");
   const [selected, setSelected] = useState<RecordId | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RecordId | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const entries = libraryEntries(records);
   const topics = [...new Set([...entries.map(entry => entry.snapshot.input.topic), ...(topic ? [topic] : [])])].sort((a, b) => a.localeCompare(b, "ko"));
-  const filtered = filterLibrary(entries, topic, search, favoritesOnly);
+  const filtered = orderLibrary(filterLibrary(entries, topic, search, favoritesOnly, practiceFilter), order);
+  const totals = practiceTotals(entries);
   const reviewing = entries.find(entry => entry.id === selected);
   const deleting = entries.find(entry => entry.id === pendingDelete);
   useEffect(() => { heading.current?.focus(); }, [selected]);
@@ -34,10 +38,11 @@ export function StudyLibrary({ records, disabled, onFavorite, onDelete, onBackup
         <h2 id="library-review-title" ref={heading} tabIndex={-1}>{snapshot.input.topic} {snapshot.mode === "llm" ? "다시 말하기" : "기록 보기"}</h2>
         <p>{dateLabel(snapshot.generatedAt)} · {snapshot.input.type} · {snapshot.input.level}</p>
       </div>
-      <p className="profile-summary">저장된 노트로 복습해요. 모델을 다시 호출하지 않으며 현재 작성 중인 입력도 바꾸지 않아요. 복습을 나가면 타이머와 완료 표시는 초기화돼요.</p>
+      <p className="profile-summary">저장된 노트로 복습해요. 모델을 다시 호출하지 않으며 현재 작성 중인 입력도 바꾸지 않아요. 네 단계 완료 횟수는 기록에 남고, 타이머와 진행 중인 단계는 화면을 나가면 초기화돼요.</p>
       <details className="source-story"><summary>이 기록의 원문 보기</summary><p>{storyFacts(snapshot.input)}</p></details>
       {snapshot.mode === "llm" ? <>
-        <SpeakingPractice key={String(selected)} note={snapshot.note} />
+        <PracticeHistory practice={snapshot.practice} />
+        <SpeakingPractice key={String(selected)} note={snapshot.note} disabled={disabled} onComplete={() => onComplete(reviewing.id)} />
         <AnswerComparison key={`compare-${selected}`} note={snapshot.note} input={snapshot.input} />
         <p className="footnote">AI가 생성한 학습 자료예요. 내 경험과 다른 내용이 없는지 확인하세요. 공식 채점 결과가 아니에요.</p>
       </> : <div className="study-panel">
@@ -56,19 +61,31 @@ export function StudyLibrary({ records, disabled, onFavorite, onDelete, onBackup
     </div>
     <p className="footnote">현재 노트와 이전 {MAX_HISTORY}개까지 보관해요. 새 노트를 만들 때 한도를 넘으면 즐겨찾기를 제외한 오래된 이전 기록부터 정리해요. 모두 즐겨찾기면 먼저 공간을 비워 주세요.</p>
     <p className="footnote">자동 저장이 꺼져 있으면 이 화면에서만 유지돼요. 삭제·교체 전 중요한 기록은 JSON으로 백업하세요. 현재 작업 중인 노트는 여기서 삭제하지 않아요.</p>
+    <dl className="library-progress" aria-label="보관 중인 노트의 복습 현황">
+      <div><dt>복습 가능한 노트</dt><dd>{totals.available}개</dd></div>
+      <div><dt>완료 기록 없는 노트</dt><dd>{totals.unpracticed}개</dd></div>
+      <div><dt>네 단계 완료 합계</dt><dd>{totals.completedSessions.toLocaleString("ko-KR")}회</dd></div>
+    </dl>
+    <p className="footnote">현재 보관 중인 노트 기준이에요. 이전 버전에서 했던 연습은 이력이 없으며, 완료 횟수는 말하기 능력 점수가 아니에요.</p>
     <div className="library-filters">
       <label htmlFor="library-topic">주제<select id="library-topic" value={topic} onChange={event => { setTopic(event.target.value); setPendingDelete(null); }}>
         <option value="">전체 주제</option>{topics.map(value => <option key={value} value={value}>{value}</option>)}
       </select></label>
       <label htmlFor="library-search">이야기 찾기<input id="library-search" type="search" maxLength={200} value={search} onChange={event => { setSearch(event.target.value); setPendingDelete(null); }} placeholder="원문·영어 답변에서 검색" /></label>
+      <label htmlFor="library-practice">복습 상태<select id="library-practice" value={practiceFilter} onChange={event => { setPracticeFilter(event.target.value as PracticeFilter); setPendingDelete(null); }}>
+        <option value="all">전체 기록</option><option value="new">완료 기록 없음</option><option value="completed">완료 기록 있음</option>
+      </select></label>
+      <label htmlFor="library-order">정렬<select id="library-order" value={order} onChange={event => { setOrder(event.target.value as LibraryOrder); setPendingDelete(null); }}>
+        <option value="newest">생성일 최신순</option><option value="practice">미완료 먼저 · 마지막 완료 오래된 순</option>
+      </select></label>
     </div>
     <div className="study-options">
       <button className="secondary" aria-pressed={favoritesOnly} onClick={() => { setFavoritesOnly(!favoritesOnly); setPendingDelete(null); }}><Star size={16} /> 즐겨찾기만</button>
       <button className="secondary" disabled={disabled || !records.current} onClick={onBackup}><Download size={16} /> 전체 기록 JSON 백업</button>
     </div>
-    <p className="library-count" role="status">전체 {entries.length}개 중 {filtered.length}개 · 생성일 최신순</p>
+    <p className="library-count" role="status">전체 {entries.length}개 중 {filtered.length}개 · {order === "newest" ? "생성일 최신순" : "미완료 먼저 · 마지막 완료 오래된 순"}</p>
     {!filtered.length && <div className="library-empty"><BookOpen size={28} /><p>{entries.length ? "조건에 맞는 기록이 없어요." : "첫 이야기를 만들면 여기에 쌓여요."}</p>
-      {entries.length > 0 && <button className="secondary" onClick={() => { setTopic(""); setSearch(""); setFavoritesOnly(false); }}>필터 초기화</button>}
+      {entries.length > 0 && <button className="secondary" onClick={() => { setTopic(""); setSearch(""); setFavoritesOnly(false); setPracticeFilter("all"); }}>필터 초기화</button>}
     </div>}
     <ul className="library-grid">
       {filtered.map(({ id, snapshot }) => <li key={String(id)} className="library-card">
@@ -77,6 +94,7 @@ export function StudyLibrary({ records, disabled, onFavorite, onDelete, onBackup
         <time dateTime={snapshot.generatedAt}>{dateLabel(snapshot.generatedAt)}</time>
         <p className="library-meta">{snapshot.input.type} · {snapshot.input.level}</p>
         <p className="library-excerpt">{storyFacts(snapshot.input)}</p>
+        {snapshot.mode === "llm" && <PracticeHistory practice={snapshot.practice} />}
         <div className="library-card-actions">
           <button className="primary" disabled={disabled} onClick={() => { setPendingDelete(null); setSelected(id); }}>{snapshot.mode === "llm" ? "이 기록으로 복습" : "보완 질문 보기"}</button>
           {id !== "current" && <button className="secondary" disabled={disabled} aria-label={`${snapshot.input.topic} ${dateLabel(snapshot.generatedAt)} 기록 삭제`} onClick={() => setPendingDelete(id)}><Trash2 size={16} /> 삭제</button>}

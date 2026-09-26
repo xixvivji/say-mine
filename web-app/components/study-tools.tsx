@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { levels, type Note, type Clarification, type Survey } from "@/lib/study";
-import { sourceSegments } from "@/lib/session";
+import { sourceSegments, type Snapshot } from "@/lib/session";
+import { finishPracticeStage, practiceStages as stages } from "@/lib/practice";
 
 const guides = [
   "한 문장에 한 가지 사실을 담아요. 문장마다 주어와 동사를 찾아보세요.",
@@ -32,14 +33,22 @@ export function AnswerComparison({ note, input }: { note: Note; input: Survey })
   </details>;
 }
 
-const stages = ["전체 답변", "한국어 뼈대", "영어 키워드", "질문만"];
-export function SpeakingPractice({ note }: { note: Note }) {
+export function PracticeHistory({ practice }: { practice: Snapshot["practice"] }) {
+  return <p className="practice-history">{practice ? <>
+    <strong>복습 {practice.completedCount.toLocaleString("ko-KR")}회 완료</strong>
+    <span>마지막 완료 <time dateTime={practice.lastCompletedAt}>{new Date(practice.lastCompletedAt).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}</time></span>
+  </> : "아직 네 단계 완료 기록이 없어요."}</p>;
+}
+
+export function SpeakingPractice({ note, onComplete, disabled = false }: { note: Note; onComplete: () => boolean; disabled?: boolean }) {
   const [stage, setStage] = useState(0);
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [completed, setCompleted] = useState<number[]>([]);
   const started = useRef(0);
   const accumulated = useRef(0);
+  const completedStages = useRef<number[]>([]);
+  const [completionError, setCompletionError] = useState(false);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setElapsed(accumulated.current + performance.now() - started.current), 250);
@@ -58,6 +67,19 @@ export function SpeakingPractice({ note }: { note: Note }) {
     setElapsed(0);
     setStage(next);
   }
+  function completeStage(now: number) {
+    if (disabled || elapsed === 0) return;
+    pause(now);
+    const result = finishPracticeStage(completedStages.current, stage);
+    completedStages.current = result.stages;
+    setCompleted(result.stages);
+    if (result.completedSession) setCompletionError(!onComplete());
+  }
+  function restart(now: number) {
+    pause(now);
+    accumulated.current = 0; completedStages.current = [];
+    setElapsed(0); setStage(0); setCompleted([]); setCompletionError(false);
+  }
   const seconds = Math.floor(elapsed / 1000);
   return <section className="study-panel practice-panel" aria-label="말하기 연습">
     <p className="eyebrow">SPEAK IN YOUR OWN WORDS</p>
@@ -75,11 +97,13 @@ export function SpeakingPractice({ note }: { note: Note }) {
     <div className="practice-controls">
       <output aria-live="off" aria-label="연습 시간" className="practice-clock">{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</output>
       <button className="secondary" onClick={() => { if (running) pause(performance.now()); else { started.current = performance.now(); setRunning(true); } }}>{running ? "잠시 멈춤" : "타이머 시작"}</button>
-      <button className="primary" disabled={elapsed === 0} onClick={() => { pause(performance.now()); setCompleted((items) => [...new Set([...items, stage])]); }}>이 단계 연습 완료</button>
+      <button className="primary" disabled={disabled || elapsed === 0 || completed.includes(stage)} onClick={() => completeStage(performance.now())}>이 단계 연습 완료</button>
     </div>
-    <p className="footnote">녹음 없이 소리 내어 연습해요. 타이머와 완료 표시는 이 연습 화면에서만 유지돼요.</p>
+    <p className="footnote">네 단계를 모두 완료하면 복습 1회로 기록해요. 직접 표시한 연습 이력이며 실제 발화·발음·등급을 평가하지 않아요. 타이머와 진행 중인 단계는 화면을 나가면 초기화돼요.</p>
     <p role="status" className="practice-status">{completed.length === 4 ? "네 단계 모두 완료했어요! 대본 없이도 전달한 내용을 떠올려보세요." : `${completed.length} / 4 단계 완료${completed.includes(stage) ? " · 이 단계를 마쳤어요." : ""}`}</p>
     {completed.includes(stage) && stage < 3 && <button className="secondary" onClick={() => changeStage(stage + 1, performance.now())}>다음 단계: {stages[stage + 1]} →</button>}
+    {completionError && <div role="alert"><p>완료 이력을 반영하지 못했어요. 현재 노트는 유지됩니다.</p><button className="secondary" disabled={disabled} onClick={() => setCompletionError(!onComplete())}>완료 기록 다시 시도</button></div>}
+    {completed.length === stages.length && !completionError && <button className="secondary" disabled={disabled} onClick={() => restart(performance.now())}>한 번 더 복습하기</button>}
   </section>;
 }
 

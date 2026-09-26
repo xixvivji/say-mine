@@ -3,12 +3,17 @@ import { surveySchema, generationSchema, levels, type Survey } from "./study";
 
 export const MAX_BACKUP_BYTES = 2_000_000;
 export const MAX_HISTORY = 10;
+export const practiceRecordSchema = z.object({
+  completedCount: z.number().int().min(1).max(1_000_000),
+  lastCompletedAt: z.string().datetime(),
+}).strict();
 export const snapshotSchema = generationSchema.extend({
   input: surveySchema,
   generatedAt: z.string().datetime(),
   reason: z.enum(["initial", "addition", "correction"]),
   favorite: z.boolean().optional(),
-}).strict();
+  practice: practiceRecordSchema.optional(),
+}).strict().refine(snapshot => snapshot.mode === "llm" || !snapshot.practice, "보완 질문에는 복습 이력을 넣을 수 없습니다.");
 export const sessionSchema = z.object({
   app: z.literal("say.mine"),
   version: z.literal(1),
@@ -71,6 +76,7 @@ export function readableSession(current: Snapshot, history: Snapshot[]) {
     `# ${input.topic} · ${input.type} · ${input.level}`,
     `배경: ${input.work} / ${input.student} / ${input.home}\n관심사: ${input.topics.join(", ")}\n목표: ${input.target}`,
     `## 현재 원문\n${input.experience}`,
+    `## 복습 이력\n${current.practice ? `4단계 완료 ${current.practice.completedCount}회 · 마지막 완료 ${current.practice.lastCompletedAt}` : "완료 기록 없음"}\n직접 표시한 연습 이력이며 말하기 능력 평가가 아닙니다.`,
     `## 추가 답변\n${input.clarifications.map(item => `질문: ${item.question}\n답변: ${item.answer}`).join("\n\n") || "없음"}`,
     `## 연습 질문\n${note.question}`,
     `## 이야기 뼈대\n${note.outline.join("\n")}`,
