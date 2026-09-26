@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseSession, serializeSession, nextHistory, replaceStory, readableSession, MAX_BACKUP_BYTES } = require("../.test-build/session.js");
+const { parseSession, serializeSession, nextHistory, replaceStory, readableSession, sourceSegments, MAX_BACKUP_BYTES } = require("../.test-build/session.js");
 const { levels, surveySchema } = require("../.test-build/study.js");
 const input = surveySchema.parse({ work: "일 경험 없음", student: "학생", home: "가족과 거주", target: "IM2", level: levels[0], topics: ["공원 가기"], topic: "공원 가기", type: "경험 이야기", experience: "친구와 공원에서 30분 걸었다.", clarifications: [{ question: "기분은 어땠나요?", answer: "기분이 좋았다." }] });
 const snapshot = {
@@ -11,6 +11,18 @@ test("JSON roundtrip preserves inputs, previous notes, variants and warnings", (
   const restored = parseSession(serializeSession(snapshot, [snapshot]));
   assert.deepEqual(restored.current, snapshot);
   assert.deepEqual(restored.history, [snapshot]);
+});
+test("source comparison preserves literal facts, decimals, negation and uncertainty", () => {
+  const source = { ...input, experience: "  3.5km 걸었다. 카페에는 안 갔다.\n날씨는 모른다.", clarifications: [{ question: "커피를 마셨나요?", answer: "아니요. 집에서 쉬었다." }] };
+  assert.deepEqual(sourceSegments(source), ["3.5km 걸었다.", "카페에는 안 갔다.", "날씨는 모른다.", "아니요.", "집에서 쉬었다."]);
+  assert.ok(!sourceSegments(source).join(" ").includes("커피"));
+});
+test("source comparison uses confirmed replacement and does not modify saved input", () => {
+  const before = JSON.stringify(snapshot);
+  const corrected = replaceStory(snapshot.input, "공원에서 20분 걸었다. 기분은 기억나지 않는다.");
+  assert.deepEqual(sourceSegments(corrected), ["공원에서 20분 걸었다.", "기분은 기억나지 않는다."]);
+  assert.equal(JSON.stringify(snapshot), before);
+  assert.deepEqual(sourceSegments(parseSession(serializeSession(snapshot, [])).current.input), sourceSegments(input));
 });
 test("unsupported, malformed, oversized or unbounded backups fail", () => {
   assert.throws(() => parseSession("not JSON"));

@@ -504,7 +504,7 @@ export default function Home() {
                 02 <span>내 이야기로 만든 답변</span>
               </h3>
               <div className="answer" lang="en">{note.answer}</div>
-              {generationMode === "llm" && <AnswerComparison key={`comparison-${revision}`} note={note} level={form.level} />}
+              {generationMode === "llm" && <AnswerComparison key={`comparison-${revision}`} note={note} input={snapshot?.input ?? form} />}
               <p className="footnote">
                 사실과 다른 부분은 내 경험에 맞게 바꿔주세요. 대괄호는 직접 채울
                 부분이에요.

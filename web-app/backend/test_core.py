@@ -29,6 +29,7 @@ from .core import (
     generate_roleplay_variants,
     EnglishAnswer,
     check_numbers,
+    check_factual_markers,
     replace_story,
     review_variants,
 )
@@ -96,7 +97,7 @@ FIXTURE = dict(
 class CoreTests(unittest.TestCase):
     def test_live_evaluation_examples_validate(self):
         cases = evaluation_cases()
-        self.assertEqual(len(cases), 6)
+        self.assertEqual(len(cases), 8)
         for case in cases:
             Survey.model_validate(case["input"])
         self.assertIn("30분", cases[0]["input"]["experience"])
@@ -110,6 +111,13 @@ class CoreTests(unittest.TestCase):
         note.variants = {level: "I walked for 30 minutes. I changed my wet clothes." for level in LEVELS}
         note.outline = ["공원에서 산책", "집으로 돌아옴", "젖은 옷을 갈아입었다."]
         self.assertEqual(inspect_note(note, case), [])
+
+    def test_example_checker_catches_numeric_sign_and_weekday_errors(self):
+        case = evaluation_cases()[0]
+        for answer in ("On Saturday I walked for -30 minutes and changed my clothes.",
+                       "On Wednesday I walked for 30 minutes and changed my clothes."):
+            note = Note.model_validate({**FIXTURE, "variants": dict.fromkeys(LEVELS, answer)})
+            self.assertTrue(any("숫자값·부호·요일" in issue for issue in inspect_note(note, case)))
 
     def test_outline_accepts_six_items_but_is_bounded(self):
         card = {key: value for key, value in FIXTURE.items() if key not in {"answer", "tip"}}
@@ -295,7 +303,8 @@ class CoreTests(unittest.TestCase):
                 payload = {"answer": variants[LEVELS[len(calls) - 1]]} if len(calls) <= 3 else {k:v for k,v in FIXTURE.items() if k not in {"answer", "tip"}}
                 return AIMessage(content=json.dumps(payload, ensure_ascii=False))
             with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
-                note = create_chain("reference").invoke({**CASES[4]["input"], "level": level})
+                note = create_chain("reference").invoke({**CASES[4]["input"], "level": level,
+                    "experience": STYLE_EXAMPLES["롤플레이"]["experience"]})
             self.assertEqual(len(calls), 4)
             self.assertEqual(note.answer, variants[level])
             self.assertEqual(note.variants, variants)
@@ -392,6 +401,59 @@ class CoreTests(unittest.TestCase):
         for answer in ("We walked for -30 minutes.", "We walked for 45 minutes."):
             with self.assertRaises(OutputParserException):
                 check_numbers(answer, BASE_INPUT["experience"])
+
+    def test_weekday_check_is_case_insensitive_and_does_not_infer_dates(self):
+        for facts in ("화요일 저녁에 갔다.", "I go on Tuesdays."):
+            answer = "I go on TUESDAYS."
+            self.assertEqual(check_factual_markers(answer, facts), answer)
+            with self.assertRaises(OutputParserException):
+                check_factual_markers("I go on Wednesdays.", facts)
+        with self.assertRaises(OutputParserException):
+            check_factual_markers("I go on Sunday.", "주말에 간다.")
+        # Missing facts and arbitrary semantic additions are outside this narrow check.
+        self.assertEqual(check_factual_markers("I like the quiet cafe.", "화요일에 갔다."), "I like the quiet cafe.")
+
+    def test_weekday_in_question_is_not_a_confirmed_fact(self):
+        raw = {**BASE_INPUT, "experience": "화요일 저녁에 혼자 카페에서 차를 마셨다.",
+               "clarifications": [{"question": "수요일에도 갔나요?", "answer": "아니요."}]}
+        facts = prepare_context(raw, "")["facts"]
+        with self.assertRaises(OutputParserException):
+            check_factual_markers("I went on Wednesday.", facts)
+
+    def test_weekday_repair_is_rechecked_and_bounded(self):
+        raw = evaluation_cases()[6]["input"]
+        variants = dict.fromkeys(LEVELS, "I went to a noisy cafe on Tuesday evening.")
+        variants[LEVELS[0]] = "I went to a noisy cafe on Wednesday evening."
+        card = {k: v for k, v in FIXTURE.items() if k not in {"answer", "tip"}}
+        for corrected in (True, False):
+            calls = []
+            def fake_model(messages):
+                calls.append(messages)
+                payload = ({"answers": variants} if len(calls) == 1 else
+                           {"answer": f"I went on {'Tuesday' if corrected else 'Wednesday'} evening."} if len(calls) == 2 else card)
+                return AIMessage(content=json.dumps(payload))
+            with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+                if corrected:
+                    note = create_chain("").invoke(raw)
+                    self.assertEqual(note.variants[LEVELS[0]], note.answer)
+                    self.assertIn("Tuesday", note.answer)
+                else:
+                    with self.assertRaises(OutputParserException):
+                        create_chain("").invoke(raw)
+            self.assertEqual(len(calls), 3 if corrected else 2)
+
+    def test_bad_weekday_in_comparison_is_omitted_without_extra_call(self):
+        calls = []
+        def fake_model(messages):
+            calls.append(messages)
+            payload = ({"answers": {**STYLE_EXAMPLES["경험 이야기"]["answers"], LEVELS[2]: "I went on Wednesday."}}
+                       if len(calls) == 1 else {k: v for k, v in FIXTURE.items() if k not in {"answer", "tip"}})
+            return AIMessage(content=json.dumps(payload))
+        with patch("backend.core.ChatOllama", return_value=RunnableLambda(fake_model)):
+            note = create_chain("").invoke(BASE_INPUT)
+        self.assertNotIn(LEVELS[2], note.variants)
+        self.assertTrue(any("요일" in message for message in note.quality_warnings))
+        self.assertEqual(len(calls), 2)
 
     def test_numeric_repair_is_verified_before_card(self):
         calls = []

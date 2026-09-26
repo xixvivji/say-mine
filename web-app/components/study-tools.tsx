@@ -1,24 +1,34 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { levels, type Note, type Clarification } from "@/lib/study";
+import { levels, type Note, type Clarification, type Survey } from "@/lib/study";
+import { sourceSegments } from "@/lib/session";
 
 const guides = [
   "한 문장에 한 가지 사실을 담아요. 문장마다 주어와 동사를 찾아보세요.",
   "이유·결과·시간을 연결하는 표현을 찾아보세요. 원문에 있는 관계인지도 확인해요.",
   "세부 정보가 어느 문장에 묶였는지 살펴보세요. 더 긴 답변이 항상 더 좋은 것은 아니에요.",
 ];
-export function AnswerComparison({ note, level }: { note: Note; level: string }) {
-  const [selected, setSelected] = useState(level);
+export function AnswerComparison({ note, input }: { note: Note; input: Survey }) {
+  const [selected, setSelected] = useState(input.level);
   return <details className="study-panel comparison">
-    <summary>같은 이야기, 세 가지 표현 비교</summary>
+    <summary>원문과 세 가지 표현 비교</summary>
     <p className="footnote">비교용 초안이에요. 위 연습 노트는 처음 선택한 수준을 기준으로 유지돼요.</p>
     <div className="study-options" role="group" aria-label="비교할 표현 수준">
       {levels.map((item) => <button key={item} className="secondary" aria-pressed={selected === item} onClick={() => setSelected(item)}>{item}</button>)}
     </div>
     <p className="style-guide">{guides[levels.indexOf(selected)]}</p>
-    {note.variants[selected] ? <p className="comparison-answer" lang="en">{note.variants[selected]}</p> : <p role="status">이 수준의 초안은 숫자 검사를 통과하지 못했거나 저장된 초안이 없어 표시하지 않았어요.</p>}
+    <div className="fact-comparison">
+      <section aria-label="생성에 사용한 원문">
+        <h4>내가 입력한 내용</h4>
+        <ol>{sourceSegments(input).map((part, index) => <li key={index}>{part}</li>)}</ol>
+      </section>
+      <section aria-label="선택 수준의 영어 답변">
+        <h4>{selected}</h4>
+        {note.variants[selected] ? <p className="comparison-answer" lang="en">{note.variants[selected]}</p> : <p role="status">이 수준의 초안은 숫자·요일 검사를 통과하지 못했거나 저장된 초안이 없어 표시하지 않았어요.</p>}
+      </section>
+    </div>
     {note.quality_warnings.length > 0 && <div className="quality-review"><strong>표현 점검 안내 · 자동 채점 아님</strong><ul>{note.quality_warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
-    <p className="footnote">원래 이야기의 시간·인물·감정이 그대로인지 비교해 주세요.</p>
+    <p className="footnote">시간·수량·인물, 하지 않은 일, 모르는 정보가 그대로인지 확인해 주세요. 원문에 없는 이유·감정이 추가되지 않았는지도 살펴보세요. 원문은 문장·줄 단위로 나눈 것이며 자동 사실 검증 결과가 아니에요.</p>
   </details>;
 }
 

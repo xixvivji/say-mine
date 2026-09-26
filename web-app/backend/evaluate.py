@@ -7,7 +7,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .core import LEVELS, Survey, create_chain, load_knowledge, replace_story
+from .core import LEVELS, Survey, create_chain, load_knowledge, replace_story, check_factual_markers
+from langchain_core.exceptions import OutputParserException
 
 BASE = dict(
     work="일 경험 없음", student="학생", home="가족과 거주", target="IM2",
@@ -32,7 +33,7 @@ def evaluation_cases():
                      ("큰 창문", r"(?:big|large) windows?|windows? (?:is|are) (?:big|large)"),
                      ("자격증 공부", r"qualif|certific|licen[cs]"),
                      ("주중 저녁", r"weekday.*evening|evening.*weekday"),
-                     ("주말에는 가지 않음", r"(?:not|don't|never).*weekends?")],
+                     ("주말에는 가지 않음", r"(?:not|don't|never).*weekends?|weekends?.*(?:not|don't|never)")],
             forbidden=[("원문에 없는 분위기·집중·계획", r"\b(?:quiet|calm|concentrat\w*|focus\w*|no plans)\b")],
             outline_anchors=[("주말 부정", r"주말.*않|주말.*안")],
         ),
@@ -43,6 +44,26 @@ def evaluation_cases():
                      ("예약", r"book|reserv"), ("내일", r"tomorrow"),
                      ("아침 7시", r"(?:7|seven)\s*(?:a\.?m\.?|in the morning)|morning.*(?:7|seven)")],
             outline_anchors=[("첫차", r"첫차|첫.*셔틀"), ("예약", r"예약")],
+        ),
+        dict(
+            id="cafe_contrast",
+            input={**BASE, "type": "묘사", "topics": ["카페 가기"], "topic": "카페 가기", "clarifications": [],
+                   "experience": "회사 옆 카페는 크고 시끄럽다. 나는 화요일 저녁에 혼자 가서 따뜻한 차를 마신다. 커피는 마시지 않는다. 창가 자리가 몇 개인지는 모른다."},
+            anchors=[("시끄러운 공간", r"noisy|loud"), ("화요일 저녁", r"Tuesday.*evening"),
+                     ("따뜻한 차", r"(?:warm|hot) tea"), ("커피 부정", r"(?:not|don't).*coffee"),
+                     ("모르는 좌석 수", r"(?:not|don't).*know.*(?:seat|chair)|(?:seat|chair).*unknown")],
+            forbidden=[("추가된 독서·집중·이유", r"\b(?:read|focus|concentrat\w*|because I like)\b")],
+            outline_anchors=[("화요일", r"화요일"), ("좌석 수 모름", r"모른|모름|알지 못")],
+        ),
+        dict(
+            id="travel_contrast",
+            input={**BASE, "topics": ["국내 여행"], "topic": "국내 여행", "clarifications": [],
+                   "experience": "지난 일요일 혼자 버스를 타고 박물관에 갔다. 버스를 40분 탔다. 도착해서 표를 사려고 했지만 휴관일이라 안에 들어가지 못했다. 아쉬워서 바로 집에 돌아왔다. 날씨는 기억나지 않는다."},
+            anchors=[("버스 이용", r"bus"), ("이동 40분", r"(?:40|forty)[- ]minutes?"),
+                     ("입장하지 못함", r"(?:could not|couldn't|did not|didn't|unable).*?(?:enter|go in|get in)|prevented.*entering"),
+                     ("날씨 기억 안남", r"(?:not|don't|can't|cannot).*remember.*weather|no memory.*weather")],
+            forbidden=[("추가된 동행인", r"\bfriend\b")],
+            outline_anchors=[("휴관", r"휴관|문.*닫"), ("날씨 기억 안남", r"날씨.*기억.*않|날씨.*기억.*안")],
         ),
     ]
 
@@ -55,6 +76,10 @@ def inspect_note(note, case):
         if not answer:
             issues.append(f"{level}: 비교 초안 없음")
             continue
+        try:
+            check_factual_markers(answer, Survey.model_validate(case["input"]).facts)
+        except OutputParserException:
+            issues.append(f"{level}: 원문에 없는 숫자값·부호·요일")
         for label, pattern in case["anchors"]:
             if not re.search(pattern, answer, re.I | re.S):
                 issues.append(f"{level}: {label} 표현 확인 필요")

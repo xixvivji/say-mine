@@ -22,6 +22,11 @@ export function storyFacts(input: Survey) {
   return [input.experience, ...input.clarifications.map(item => item.answer)].join("\n");
 }
 
+export function sourceSegments(input: Survey) {
+  // Display only literal source text, not generated summaries or question assumptions.
+  return storyFacts(input).split(/(?<=[.!?])\s+|[\r\n]+/u).map(part => part.trim()).filter(Boolean);
+}
+
 export function replaceStory(input: Survey, correctedStory: string): Survey {
   return surveySchema.parse({ ...input, experience: correctedStory, clarifications: [] });
 }

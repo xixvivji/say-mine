@@ -644,6 +644,11 @@ footer p {
 .study-options button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); background: #eef1ff; box-shadow: inset 0 0 0 1px var(--primary); }
 .style-guide { color: #4656ab; font-size: 14px; margin-bottom: 12px; }
 .comparison-answer { white-space: pre-wrap; font-size: 18px; line-height: 1.85; }
+.fact-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; }
+.fact-comparison section { min-width: 0; padding: 18px; border-radius: 12px; background: #f7f8fc; overflow-wrap: anywhere; }
+.fact-comparison h4 { margin: 0 0 12px; font-size: 14px; color: #4656ab; }
+.fact-comparison ol { padding-left: 20px; font-size: 15px; line-height: 1.8; }
+.fact-comparison li + li { margin-top: 8px; }
 .practice-entry { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px; margin: 24px 0; border-radius: 14px; background: #eef1ff; }
 .practice-entry p { color: #526080; font-size: 14px; }
 .practice-entry .primary { flex-shrink: 0; }
@@ -671,6 +676,7 @@ footer p {
 .session-import input { max-width: 100%; }
 .import-preview .study-options { margin-bottom: 0; }
 @media (max-width: 600px) {
+  .fact-comparison { grid-template-columns: minmax(0, 1fr); }
   .study-panel { padding: 18px; }
   .practice-entry { align-items: stretch; flex-direction: column; }
   .study-options { flex-direction: column; }

@@ -394,16 +394,31 @@ def check_numbers(answer, experience):
     return answer
 
 
+def check_factual_markers(answer, facts):
+    """Reject unsupported numeric values and explicit weekday names, not all semantic errors."""
+    check_numbers(answer, facts)
+    weekdays = [
+        ("월요일", "monday"), ("화요일", "tuesday"), ("수요일", "wednesday"),
+        ("목요일", "thursday"), ("금요일", "friday"), ("토요일", "saturday"), ("일요일", "sunday"),
+    ]
+    for korean, english in weekdays:
+        pattern = rf"\b{english}s?\b"
+        if re.search(pattern, answer, re.I) and korean not in facts and not re.search(pattern, facts, re.I):
+            raise OutputParserException("Draft contains a weekday absent from the input", llm_output=answer)
+    return answer
+
+
 def select_answer(context):
     answer = context["variants"].answers[context["selected_level"]]
-    return {**context, "draft_answer": check_numbers(answer, context["facts"])}
+    return {**context, "draft_answer": check_factual_markers(answer, context["facts"])}
 
 
 answer_repair_prompt = ChatPromptTemplate.from_messages([
-    ("system", """Correct the English draft using only the original Korean experience. The draft contains a numeric value or sign absent from the input.
-Keep the requested style and every supplied fact, but correct the unsupported quantities. Do not add other facts or approximate amounts.
+    ("system", """Correct the English draft using only the learner-confirmed facts. The draft contains a numeric value, sign, or explicit weekday absent from the input.
+Keep the requested style and every supplied fact, but correct unsupported quantities and weekdays. Do not add other facts or approximate amounts. Question text is context only, not evidence.
 {format_instructions}"""),
-    ("human", """Original experience: {experience}
+    ("human", """Learner-confirmed facts: {facts}
+Question/answer context (questions are NOT facts): {experience}
 Style: {selected_level}: {level_rule}
 Draft to correct: {invalid_response}
 Return the corrected English answer as JSON."""),
@@ -415,7 +430,7 @@ def answer_repair_context(context):
 
 
 def use_repaired_answer(context):
-    return {**context, "draft_answer": check_numbers(context["repaired_answer"].answer, context["facts"])}
+    return {**context, "draft_answer": check_factual_markers(context["repaired_answer"].answer, context["facts"])}
 
 
 def review_variants(variants):
@@ -433,7 +448,7 @@ def review_variants(variants):
     if any(re.search(r"\b(?:a lot|really|very|suddenly)\b", answer, re.I) for answer in variants.values()):
         warnings.append("강도·갑작스러움을 나타내는 표현이 있어요. 원문에 없는 의미를 덧붙였는지 확인하세요.")
     if len(variants) < len(LEVELS):
-        warnings.append("일부 수준은 숫자 검사를 통과하지 못해 비교에서 제외했어요.")
+        warnings.append("일부 수준은 숫자·요일 검사를 통과하지 못해 비교에서 제외했어요.")
     return warnings[:6]
 
 
@@ -444,11 +459,11 @@ def finish_note(context):
         LEVELS[1]: "키워드만 보고 실제로 연결되는 사건을 묶어 말해보세요. 이유는 because, 결과는 so, 시간은 when으로 연결할 수 있지만 원문에 없는 관계는 만들지 마세요.",
         LEVELS[2]: "키워드만 보고 문장 시작과 정보 배치를 바꿔 말해보세요. 입력에 있는 세부 정보만 수식절이나 시간 표현으로 묶고, 새 감정·강도·사건을 추가하지 않았는지 확인하세요.",
     }
-    # Only expose comparison drafts that pass the same numeric check.
+    # Only expose comparison drafts that pass the same limited marker checks.
     variants = {}
     for level, answer in context["variants"].answers.items():
         try:
-            variants[level] = check_numbers(answer, context["facts"])
+            variants[level] = check_factual_markers(answer, context["facts"])
         except OutputParserException:
             continue
     variants[context["selected_level"]] = context["draft_answer"]
